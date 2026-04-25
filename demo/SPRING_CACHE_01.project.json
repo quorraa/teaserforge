@@ -1,0 +1,41 @@
+{
+  "rootPath": "F:\\OneDrive\\Music\\junglenostalgicbreakcore\\SPRING_CACHE_01",
+  "folders": {
+    "COVER_ART": [
+      "amen_grid_v1.2_suno.png",
+      "BLUEALTAR_404.png",
+      "Eden.Login.png",
+      "Eden.Login9x16.png",
+      "fragments_v1.7.3_spotify.png",
+      "fragments_v1.7.3_suno.png",
+      "fragments9x16.png",
+      "heart_sync.dll.png",
+      "lost.signal.spotify.png",
+      "lost.signal.suno.png",
+      "midnight_uplink_alpha_suno.png",
+      "midnight_uplink_suno.png",
+      "Pearl.Login.png",
+      "SPRING_CACHE_01.png"
+    ],
+    "VIDEO_COVER_ART": [
+      "BLUEALTAR_404.mp4",
+      "Eden.Login9x16.mp4",
+      "fragments_v1.7.3_suno.mp4",
+      "heart_sync.dll.mp4",
+      "lost.signal.suno-needsrework.mp4",
+      "midnight_uplink_alpha_suno.mp4",
+      "midnight_uplink_suno.mp4",
+      "SPRING_CACHE_01.mp4"
+    ]
+  },
+  "audio": [
+    "[24bits]Fragments_v1.7.3.wav",
+    "amen_grid_v1.2.wav",
+    "BLUEALTAR_404.wav",
+    "Eden.Login.wav",
+    "heart_sync.dll.wav",
+    "lost_signal.sys.wav",
+    "midnight_uplink_alpha.wav",
+    "midnight_uplink.wav"
+  ]
+}

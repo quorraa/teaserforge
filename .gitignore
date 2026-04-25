@@ -1,0 +1,10 @@
+node_modules/
+out/
+dist/
+.vite/
+*.log
+*.tsbuildinfo
+teaserforge.config.json
+demo-output/
+output/
+.playwright-cli/
