@@ -32,16 +32,12 @@ function filterTree(node: FileTreeNode, search: string): FileTreeNode | null {
   return null;
 }
 
-function AssetThumb({ asset }: { asset: MediaAsset }): JSX.Element {
+function AssetThumb({ asset, isDemo }: { asset: MediaAsset; isDemo: boolean }): JSX.Element {
   const [failed, setFailed] = useState(false);
   const url = teaserForgeApi.mediaUrl(asset.path);
 
-  if (asset.kind === 'image' && !failed) {
+  if (asset.kind === 'image' && !isDemo && !failed) {
     return <img className="asset-thumb" src={url} alt="" onError={() => setFailed(true)} />;
-  }
-
-  if (asset.kind === 'video' && !failed) {
-    return <video className="asset-thumb" src={url} muted preload="metadata" onError={() => setFailed(true)} />;
   }
 
   if (asset.kind === 'audio') return <Music2 className="asset-icon audio" size={18} />;
@@ -56,10 +52,12 @@ function assetDrag(event: DragEvent, asset: MediaAsset): void {
 
 function AssetRow({
   asset,
+  isDemo,
   selected,
   onClick
 }: {
   asset: MediaAsset;
+  isDemo: boolean;
   selected: boolean;
   onClick: (asset: MediaAsset) => void;
 }): JSX.Element {
@@ -72,7 +70,7 @@ function AssetRow({
       onClick={() => onClick(asset)}
       title={asset.path}
     >
-      <AssetThumb asset={asset} />
+      <AssetThumb asset={asset} isDemo={isDemo} />
       <span className="asset-name">{asset.name}</span>
     </button>
   );
@@ -82,6 +80,7 @@ function TreeNode({
   node,
   assetsByPath,
   project,
+  isDemo,
   onSelectSong,
   onSelectCover,
   onSelectVideo,
@@ -90,6 +89,7 @@ function TreeNode({
   node: FileTreeNode;
   assetsByPath: Map<string, MediaAsset>;
   project: ProjectConfig;
+  isDemo: boolean;
   onSelectSong: (asset: MediaAsset) => void;
   onSelectCover: (asset: MediaAsset) => void;
   onSelectVideo: (asset: MediaAsset) => void;
@@ -112,6 +112,7 @@ function TreeNode({
             node={child}
             assetsByPath={assetsByPath}
             project={project}
+            isDemo={isDemo}
             onSelectSong={onSelectSong}
             onSelectCover={onSelectCover}
             onSelectVideo={onSelectVideo}
@@ -147,7 +148,7 @@ function TreeNode({
       style={{ paddingLeft: 10 + level * 14 }}
       title={node.path}
     >
-      <AssetThumb asset={asset} />
+      <AssetThumb asset={asset} isDemo={isDemo} />
       <span>{node.name}</span>
     </button>
   );
@@ -156,11 +157,13 @@ function TreeNode({
 function Group({
   title,
   assets,
+  isDemo,
   selectedPaths,
   onClick
 }: {
   title: string;
   assets: MediaAsset[];
+  isDemo: boolean;
   selectedPaths: Array<string | undefined>;
   onClick: (asset: MediaAsset) => void;
 }): JSX.Element {
@@ -174,7 +177,7 @@ function Group({
         {assets.length === 0 ? (
           <div className="empty-note">No matching assets</div>
         ) : (
-          assets.map((asset) => <AssetRow key={asset.id} asset={asset} selected={selectedPaths.includes(asset.path)} onClick={onClick} />)
+          assets.map((asset) => <AssetRow key={asset.id} asset={asset} isDemo={isDemo} selected={selectedPaths.includes(asset.path)} onClick={onClick} />)
         )}
       </div>
     </section>
@@ -255,6 +258,7 @@ export function MediaBrowser({
                 node={filteredTree}
                 assetsByPath={assetsByPath}
                 project={project}
+                isDemo={isDemo}
                 onSelectSong={onSelectSong}
                 onSelectCover={onSelectCover}
                 onSelectVideo={onSelectVideo}
@@ -262,9 +266,9 @@ export function MediaBrowser({
             )}
           </section>
 
-          <Group title="Root Audio Files" assets={filtered(scan.groups.rootAudio)} selectedPaths={selectedPaths} onClick={onSelectSong} />
-          <Group title="COVER_ART" assets={filtered(scan.groups.coverArt)} selectedPaths={selectedPaths} onClick={onSelectCover} />
-          <Group title="VIDEO_COVER_ART" assets={filtered(scan.groups.videoCoverArt)} selectedPaths={selectedPaths} onClick={onSelectVideo} />
+          <Group title="Root Audio Files" assets={filtered(scan.groups.rootAudio)} isDemo={isDemo} selectedPaths={selectedPaths} onClick={onSelectSong} />
+          <Group title="COVER_ART" assets={filtered(scan.groups.coverArt)} isDemo={isDemo} selectedPaths={selectedPaths} onClick={onSelectCover} />
+          <Group title="VIDEO_COVER_ART" assets={filtered(scan.groups.videoCoverArt)} isDemo={isDemo} selectedPaths={selectedPaths} onClick={onSelectVideo} />
         </div>
       )}
     </aside>

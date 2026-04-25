@@ -1,4 +1,5 @@
 import { app, BrowserWindow, net, protocol, shell } from 'electron';
+import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { registerExportIpc } from './ipc/export';
@@ -51,7 +52,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
-  protocol.handle('teaserforge', (request) => {
+  protocol.handle('teaserforge', async (request) => {
     const url = new URL(request.url);
     if (url.hostname !== 'media') {
       return new Response('Not found', { status: 404 });
@@ -60,7 +61,15 @@ app.whenReady().then(() => {
     if (!filePath || !path.isAbsolute(filePath)) {
       return new Response('Invalid media path', { status: 400 });
     }
-    return net.fetch(pathToFileURL(filePath).toString());
+    try {
+      const stat = await fs.stat(filePath);
+      if (!stat.isFile()) {
+        return new Response('Media path is not a file', { status: 404 });
+      }
+      return net.fetch(pathToFileURL(filePath).toString());
+    } catch {
+      return new Response('Media file not found', { status: 404 });
+    }
   });
 
   registerFilesystemIpc();

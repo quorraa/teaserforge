@@ -4,7 +4,7 @@ import { Inspector } from './components/Inspector/Inspector';
 import { MediaBrowser } from './components/MediaBrowser/MediaBrowser';
 import { PreviewCanvas } from './components/PreviewCanvas/PreviewCanvas';
 import { Timeline } from './components/Timeline/Timeline';
-import { bestAssetMatch, displayStem, rankAssetMatches } from './lib/assetMatching';
+import { bestAssetMatch, rankAssetMatches } from './lib/assetMatching';
 import { isNativeTeaserForge, teaserForgeApi } from './lib/api';
 import { createDemoProject, createDemoScan } from './lib/demoProject';
 import { EXPORT_TARGETS } from './lib/ffmpegCommands';
@@ -166,7 +166,6 @@ export function App(): JSX.Element {
         selectedSongPath: asset.path,
         coverArtPath: cover?.path,
         videoCoverPath: video?.path,
-        subtitle: displayStem(asset.name),
         settings: {
           ...previous.settings,
           startOffset: 0,
@@ -291,7 +290,7 @@ export function App(): JSX.Element {
           <div className="workspace-toolbar panel">
             <div>
               <p className="eyebrow">Preview Canvases</p>
-              <h1>{project.title}</h1>
+              <h1>{project.title || scan?.rootName || 'Untitled Project'}</h1>
             </div>
             <div className="toolbar-toggles">
               <button className={project.settings.showSafeArea ? 'active' : ''} type="button" onClick={() => updateSettings({ showSafeArea: !project.settings.showSafeArea })}>

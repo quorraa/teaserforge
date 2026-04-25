@@ -1,4 +1,5 @@
 import type { DragEvent } from 'react';
+import { useEffect, useState } from 'react';
 import type { AspectRatioPreset, MediaAsset, ProjectConfig } from '../../../shared/types';
 import { teaserForgeApi } from '../../lib/api';
 import { formatTime } from '../../lib/timecode';
@@ -42,11 +43,19 @@ export function PreviewCanvas({
   onDropAsset
 }: PreviewCanvasProps): JSX.Element {
   const settings = project.settings;
+  const [videoFailed, setVideoFailed] = useState(false);
   const duration = Math.max(1, settings.endOffset - settings.startOffset || settings.teaserDuration);
   const progress = Math.min(1, Math.max(0, currentTime / duration));
-  const background = settings.backgroundType !== 'static-cover' && video ? video : cover;
+  const wantsVideo = settings.backgroundType !== 'static-cover' && video && !videoFailed;
+  const background = wantsVideo ? video : cover;
   const bars = syntheticBars(preset.key === '16x9' ? 72 : 48, project.selectedSongPath ?? project.title);
   const backgroundUrl = !isDemo && background ? teaserForgeApi.mediaUrl(background.path) : '';
+  const titleText = project.title.trim();
+  const subtitleText = project.subtitle.trim();
+
+  useEffect(() => {
+    setVideoFailed(false);
+  }, [video?.path]);
 
   return (
     <section
@@ -66,7 +75,7 @@ export function PreviewCanvas({
       <div className="preview-stage-wrap">
         <div className="preview-stage" style={{ aspectRatio: `${preset.width} / ${preset.height}` }}>
           {backgroundUrl && background?.kind === 'video' ? (
-            <video className="preview-bg" src={backgroundUrl} autoPlay muted loop playsInline />
+            <video className="preview-bg" src={backgroundUrl} autoPlay muted loop playsInline onError={() => setVideoFailed(true)} />
           ) : backgroundUrl && background?.kind === 'image' ? (
             <img className="preview-bg" src={backgroundUrl} alt="" />
           ) : (
@@ -88,8 +97,9 @@ export function PreviewCanvas({
           {settings.showGrid && <div className="preview-grid" />}
           {settings.showSafeArea && <div className="preview-safe-area" />}
 
-          <div className={`preview-copy ${textPositionClass(settings.positionPreset)}`}>
-            {settings.titleVisible && (
+          {(titleText || subtitleText) && (
+            <div className={`preview-copy ${textPositionClass(settings.positionPreset)}`}>
+            {settings.titleVisible && titleText && (
               <h3
                 style={{
                   fontFamily: settings.fontFamily,
@@ -98,11 +108,12 @@ export function PreviewCanvas({
                   textShadow: `0 0 ${settings.glowAmount}px rgba(0,216,255,.7)`
                 }}
               >
-                {project.title || 'Untitled Teaser'}
+                {titleText}
               </h3>
             )}
-            {settings.subtitleVisible && <p>{project.subtitle || 'Subtitle / Artist'}</p>}
-          </div>
+            {settings.subtitleVisible && subtitleText && <p>{subtitleText}</p>}
+            </div>
+          )}
 
           {settings.waveformDisplay && (
             <div className={`preview-waveform ${settings.waveformStyle}`}>

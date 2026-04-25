@@ -235,8 +235,8 @@ export const DEFAULT_SETTINGS: TeaserSettings = {
 
 export const DEFAULT_PROJECT: ProjectConfig = {
   schemaVersion: 1,
-  title: 'SPRING_CACHE_01',
-  subtitle: 'midnight_uplink_alpha',
+  title: '',
+  subtitle: '',
   pairings: {},
   settings: DEFAULT_SETTINGS,
   updatedAt: new Date(0).toISOString()
