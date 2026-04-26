@@ -1,13 +1,15 @@
 import { app, dialog, ipcMain } from 'electron';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import type { AppSettings, ProjectConfig } from '../../shared/types';
-import { DEFAULT_MEDIA_TRANSFORMS, DEFAULT_PROJECT, DEFAULT_TIMELINE } from '../../shared/types';
+import type { AppSettings, AspectRatioKey, ProjectConfig, TeaserSettings, TimelineTrackId, TimelineTrackState } from '../../shared/types';
+import { DEFAULT_MEDIA_TRANSFORMS, DEFAULT_PROJECT, DEFAULT_TEXT_TRANSFORMS, DEFAULT_TIMELINE, DEFAULT_TRACKS } from '../../shared/types';
 import { scanProjectFolder } from './mediaScan';
 
 const PROJECT_DIR = '.teaserforge';
 const PROJECT_FILE = 'project.json';
 const SETTINGS_FILE = 'settings.json';
+const ASPECT_KEYS: AspectRatioKey[] = ['9x16', '1x1', '16x9'];
+const TRACK_KEYS: TimelineTrackId[] = ['text', 'cover', 'video', 'effects'];
 
 function projectConfigPath(rootPath: string): string {
   return path.join(rootPath, PROJECT_DIR, PROJECT_FILE);
@@ -31,6 +33,42 @@ async function writeJson(filePath: string, value: unknown): Promise<void> {
   await fs.writeFile(filePath, JSON.stringify(value, null, 2), 'utf8');
 }
 
+function mergeMediaTransforms(saved?: Partial<TeaserSettings['mediaTransforms']>): TeaserSettings['mediaTransforms'] {
+  return ASPECT_KEYS.reduce((next, aspect) => ({
+    ...next,
+    [aspect]: {
+      ...DEFAULT_MEDIA_TRANSFORMS[aspect],
+      ...saved?.[aspect]
+    }
+  }), {} as TeaserSettings['mediaTransforms']);
+}
+
+function mergeTextTransforms(saved?: Partial<TeaserSettings['textTransforms']>): TeaserSettings['textTransforms'] {
+  return ASPECT_KEYS.reduce((next, aspect) => ({
+    ...next,
+    [aspect]: {
+      title: {
+        ...DEFAULT_TEXT_TRANSFORMS[aspect].title,
+        ...saved?.[aspect]?.title
+      },
+      subtitle: {
+        ...DEFAULT_TEXT_TRANSFORMS[aspect].subtitle,
+        ...saved?.[aspect]?.subtitle
+      }
+    }
+  }), {} as TeaserSettings['textTransforms']);
+}
+
+function mergeTracks(saved?: Partial<Record<TimelineTrackId, TimelineTrackState>>): Record<TimelineTrackId, TimelineTrackState> {
+  return TRACK_KEYS.reduce((next, track) => ({
+    ...next,
+    [track]: {
+      ...DEFAULT_TRACKS[track],
+      ...saved?.[track]
+    }
+  }), {} as Record<TimelineTrackId, TimelineTrackState>);
+}
+
 export function registerFilesystemIpc(): void {
   ipcMain.handle('filesystem:selectProjectFolder', async () => {
     const result = await dialog.showOpenDialog({
@@ -48,6 +86,23 @@ export function registerFilesystemIpc(): void {
     return result.canceled ? undefined : result.filePaths[0];
   });
 
+  ipcMain.handle('filesystem:selectMediaFile', async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Relink media file',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Media files', extensions: ['wav', 'mp3', 'flac', 'm4a', 'png', 'jpg', 'jpeg', 'webp', 'mp4', 'mov', 'm4v', 'webm'] },
+        { name: 'All files', extensions: ['*'] }
+      ]
+    });
+    return result.canceled ? undefined : result.filePaths[0];
+  });
+
+  ipcMain.handle('filesystem:openPath', async (_event, targetPath: string) => {
+    const { shell } = await import('electron');
+    return shell.openPath(targetPath);
+  });
+
   ipcMain.handle('filesystem:scanProjectFolder', async (_event, rootPath: string) => {
     return scanProjectFolder(rootPath);
   });
@@ -61,12 +116,15 @@ export function registerFilesystemIpc(): void {
       settings: {
         ...DEFAULT_PROJECT.settings,
         ...saved?.settings,
-        mediaTransforms: {
-          ...DEFAULT_MEDIA_TRANSFORMS,
-          ...saved?.settings?.mediaTransforms
-        }
+        mediaTransforms: mergeMediaTransforms(saved?.settings?.mediaTransforms),
+        textTransforms: mergeTextTransforms(saved?.settings?.textTransforms)
       },
-      timeline: saved?.timeline ?? DEFAULT_TIMELINE,
+      timeline: {
+        ...DEFAULT_TIMELINE,
+        ...saved?.timeline,
+        tracks: mergeTracks(saved?.timeline?.tracks),
+        beatMarkers: saved?.timeline?.beatMarkers ?? DEFAULT_TIMELINE.beatMarkers
+      },
       pairings: saved?.pairings ?? {}
     } satisfies ProjectConfig;
   });

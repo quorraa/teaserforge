@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron';
 import { spawn } from 'node:child_process';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import ffmpegStatic from 'ffmpeg-static';
@@ -13,7 +14,10 @@ import type {
   FfmpegStatus,
   ProjectConfig
 } from '../../shared/types';
-import { DEFAULT_MEDIA_TRANSFORMS } from '../../shared/types';
+import { DEFAULT_MEDIA_TRANSFORMS, DEFAULT_TEXT_TRANSFORMS } from '../../shared/types';
+
+const activeExportProcesses = new Set<ChildProcessWithoutNullStreams>();
+let cancelRequested = false;
 
 const QUALITY_ARGS: Record<string, string[]> = {
   draft: ['-crf', '28', '-preset', 'veryfast'],
@@ -46,6 +50,7 @@ function runProcess(binary: string, args: string[], onLine?: (line: string) => v
   return new Promise((resolve, reject) => {
     const child = spawn(binary, args, { windowsHide: true });
     const log: string[] = [];
+    activeExportProcesses.add(child);
 
     child.stdout.on('data', (chunk: Buffer) => {
       const line = chunk.toString();
@@ -59,8 +64,14 @@ function runProcess(binary: string, args: string[], onLine?: (line: string) => v
       onLine?.(line);
     });
 
-    child.on('error', reject);
-    child.on('close', (code) => resolve({ code: code ?? 1, log: log.join('') }));
+    child.on('error', (error) => {
+      activeExportProcesses.delete(child);
+      reject(error);
+    });
+    child.on('close', (code) => {
+      activeExportProcesses.delete(child);
+      resolve({ code: code ?? 1, log: log.join('') });
+    });
   });
 }
 
@@ -86,11 +97,21 @@ function buildFilter(project: ProjectConfig, request: ExportRequest): string {
   const { width, height } = request.target;
   const settings = project.settings;
   const mediaTransform = settings.mediaTransforms?.[request.target.aspect] ?? DEFAULT_MEDIA_TRANSFORMS[request.target.aspect];
+  const textTransform = settings.textTransforms?.[request.target.aspect] ?? DEFAULT_TEXT_TRANSFORMS[request.target.aspect];
   const mediaScale = clamp(mediaTransform.scale || 1, 1, 2.5);
   const mediaPositionX = (clamp(mediaTransform.positionX, 0, 100) / 100).toFixed(4);
   const mediaPositionY = (clamp(mediaTransform.positionY, 0, 100) / 100).toFixed(4);
   const scaledWidth = Math.ceil((width * mediaScale) / 2) * 2;
   const scaledHeight = Math.ceil((height * mediaScale) / 2) * 2;
+  const rotation = ((mediaTransform.rotation ?? 0) * Math.PI / 180).toFixed(5);
+  const fitFilter = mediaTransform.fitMode === 'fill'
+    ? `scale=${scaledWidth}:${scaledHeight},crop=${width}:${height}:x='(in_w-out_w)*${mediaPositionX}':y='(in_h-out_h)*${mediaPositionY}'`
+    : mediaTransform.fitMode === 'contain'
+      ? `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)*${mediaPositionX}:(oh-ih)*${mediaPositionY}:color=black`
+      : `scale=${scaledWidth}:${scaledHeight}:force_original_aspect_ratio=increase,crop=${width}:${height}:x='(in_w-out_w)*${mediaPositionX}':y='(in_h-out_h)*${mediaPositionY}'`;
+  const rotateFilter = Math.abs(mediaTransform.rotation ?? 0) > 0.01
+    ? `,rotate=${rotation}:ow=rotw(${rotation}):oh=roth(${rotation}):fillcolor=black,crop=${width}:${height}`
+    : '';
   const title = escapeDrawtext(project.title || safeBaseName(project.selectedSongPath ?? 'TeaserForge'));
   const subtitle = escapeDrawtext(project.subtitle || '');
   const fontSize = Math.max(24, Math.round(settings.fontSize * (width / 1080)));
@@ -98,20 +119,24 @@ function buildFilter(project: ProjectConfig, request: ExportRequest): string {
   const margin = Math.round(Math.min(width, height) * 0.07);
   const glowAlpha = Math.min(1, Math.max(0, settings.glowAmount / 80)).toFixed(2);
   const filterParts: string[] = [
-    `[0:v]scale=${scaledWidth}:${scaledHeight}:force_original_aspect_ratio=increase,crop=${width}:${height}:x='(in_w-out_w)*${mediaPositionX}':y='(in_h-out_h)*${mediaPositionY}',setsar=1,format=rgba[bg]`
+    `[0:v]${fitFilter}${rotateFilter},setsar=1,format=rgba[bg]`
   ];
 
   let current = '[bg]';
   if (settings.titleVisible) {
+    const titleX = Math.round((width * clamp(textTransform.title.x, 0, 100)) / 100);
+    const titleY = Math.round((height * clamp(textTransform.title.y, 0, 100)) / 100);
     filterParts.push(
-      `${current}drawtext=text='${title}':x=(w-text_w)/2:y=h-${margin * 3}:fontsize=${fontSize}:fontcolor=white:shadowcolor=0x7b2dff@${glowAlpha}:shadowx=0:shadowy=0:box=0[title]`
+      `${current}drawtext=text='${title}':x=${titleX}-text_w/2:y=${titleY}-text_h/2:fontsize=${fontSize}:fontcolor=white:shadowcolor=0x7b2dff@${glowAlpha}:shadowx=0:shadowy=0:box=0[title]`
     );
     current = '[title]';
   }
 
   if (settings.subtitleVisible && subtitle.length > 0) {
+    const subtitleX = Math.round((width * clamp(textTransform.subtitle.x, 0, 100)) / 100);
+    const subtitleY = Math.round((height * clamp(textTransform.subtitle.y, 0, 100)) / 100);
     filterParts.push(
-      `${current}drawtext=text='${subtitle}':x=(w-text_w)/2:y=h-${margin * 2}:fontsize=${subtitleSize}:fontcolor=0xcde9ff:shadowcolor=0x00d8ff@${glowAlpha}:shadowx=0:shadowy=0[sub]`
+      `${current}drawtext=text='${subtitle}':x=${subtitleX}-text_w/2:y=${subtitleY}-text_h/2:fontsize=${subtitleSize}:fontcolor=0xcde9ff:shadowcolor=0x00d8ff@${glowAlpha}:shadowx=0:shadowy=0[sub]`
     );
     current = '[sub]';
   }
@@ -149,6 +174,7 @@ function buildArgs(request: ExportRequest): string[] {
   const outputPath = outputPathFor(project, target.aspect);
   const duration = Math.max(1, settings.endOffset - settings.startOffset || settings.teaserDuration);
   const audioFilters: string[] = [];
+  if (settings.audioGain !== 1) audioFilters.push(`volume=${Math.max(0, Math.min(settings.audioGain ?? 1, 3))}`);
   if (settings.normalizeAudio) audioFilters.push('loudnorm=I=-16:TP=-1.5:LRA=11');
   if (settings.fadeAudio) {
     const fadeDuration = Math.max(0.05, Math.min(settings.fadeDuration, duration / 2));
@@ -198,13 +224,13 @@ async function exportOne(request: ExportRequest, emit: (event: ExportProgressEve
     });
   });
 
-  const success = result.code === 0;
+  const success = result.code === 0 && !cancelRequested;
   emit({
     id,
     aspect: request.target.aspect,
     status: success ? 'complete' : 'failed',
     percent: success ? 100 : 0,
-    message: success ? `Saved ${path.basename(outputPath)}` : `FFmpeg failed for ${request.target.aspect}`,
+    message: success ? `Saved ${path.basename(outputPath)}` : cancelRequested ? `Canceled ${request.target.aspect}` : `FFmpeg failed for ${request.target.aspect}`,
     outputPath
   });
 
@@ -229,13 +255,22 @@ export async function checkFfmpeg(): Promise<FfmpegStatus> {
 export function registerExportIpc(): void {
   ipcMain.handle('export:checkFfmpeg', async () => checkFfmpeg());
   ipcMain.handle('export:runBatch', async (event, request: ExportBatchRequest) => {
+    cancelRequested = false;
     const results: ExportResult[] = [];
     for (const target of request.targets) {
+      if (cancelRequested) break;
       const result = await exportOne({ project: request.project, target }, (progress) => {
         event.sender.send('export:progress', progress);
       });
       results.push(result);
     }
     return results;
+  });
+  ipcMain.handle('export:cancelAll', async () => {
+    cancelRequested = true;
+    for (const child of activeExportProcesses) {
+      child.kill('SIGTERM');
+    }
+    return true;
   });
 }

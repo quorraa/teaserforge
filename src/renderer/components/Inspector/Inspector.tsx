@@ -13,7 +13,7 @@ import type {
   TimelineExportMarker,
   TimelineSelection
 } from '../../../shared/types';
-import { ASPECT_RATIOS, DEFAULT_MEDIA_TRANSFORMS } from '../../../shared/types';
+import { ASPECT_RATIOS, DEFAULT_MEDIA_TRANSFORMS, DEFAULT_TEXT_TRANSFORMS } from '../../../shared/types';
 import { defaultOutputHint, EXPORT_TARGETS } from '../../lib/ffmpegCommands';
 import { formatTime, parseNumber } from '../../lib/timecode';
 import { ExportQueue } from '../ExportQueue/ExportQueue';
@@ -38,8 +38,12 @@ interface InspectorProps {
   onTimelineMarkerChange: (markerId: string, patch: Partial<TimelineExportMarker>) => void;
   onSetCover: (asset?: MediaAsset) => void;
   onSetVideo: (asset?: MediaAsset) => void;
+  onRelinkMedia: (kind: 'song' | 'cover' | 'video') => void;
   onSelectOutputFolder: () => void;
   onExportTargets: (targetKeys: string[]) => void;
+  onCancelExports: () => void;
+  onOpenOutputFolder: () => void;
+  onLoadRecentProject: (rootPath: string) => void;
   onAppSettingsChange: (settings: AppSettings) => void;
   onCheckFfmpeg: () => void;
   onPlayRegion: () => void;
@@ -135,8 +139,12 @@ export function Inspector({
   onTimelineMarkerChange,
   onSetCover,
   onSetVideo,
+  onRelinkMedia,
   onSelectOutputFolder,
   onExportTargets,
+  onCancelExports,
+  onOpenOutputFolder,
+  onLoadRecentProject,
   onAppSettingsChange,
   onCheckFfmpeg,
   onPlayRegion
@@ -144,14 +152,15 @@ export function Inspector({
   const [tab, setTab] = useState<InspectorTab>('project');
   const settings = project.settings;
   const selectedTarget = EXPORT_TARGETS.find((target) => target.aspect === settings.primaryAspect) ?? EXPORT_TARGETS[0];
-  const selectedTimelineClip = project.timeline.selected?.type === 'clip'
+  const selectedTimelineClip = project.timeline.selected?.type === 'clip' && project.timeline.selected.id
     ? project.timeline.clips.find((clip) => clip.id === project.timeline.selected?.id)
     : undefined;
-  const selectedTimelineMarker = project.timeline.selected?.type === 'export-marker'
+  const selectedTimelineMarker = project.timeline.selected?.type === 'export-marker' && project.timeline.selected.id
     ? project.timeline.exportMarkers.find((marker) => marker.id === project.timeline.selected?.id)
     : undefined;
   const selectedExportRange = project.timeline.selected?.type === 'export-range';
   const activeMediaTransform = settings.mediaTransforms?.[settings.primaryAspect] ?? DEFAULT_MEDIA_TRANSFORMS[settings.primaryAspect];
+  const activeTextTransform = settings.textTransforms?.[settings.primaryAspect] ?? DEFAULT_TEXT_TRANSFORMS[settings.primaryAspect];
 
   const assetName = (path?: string): string => path?.split(/[\\/]/).pop() ?? 'None selected';
   const updateActiveMediaTransform = (patch: Partial<typeof activeMediaTransform>): void => {
@@ -166,6 +175,25 @@ export function Inspector({
         [settings.primaryAspect]: {
           ...activeMediaTransform,
           ...patch
+        }
+      }
+    });
+  };
+  const updateActiveTextTransform = (layer: 'title' | 'subtitle', patch: Partial<typeof activeTextTransform.title>): void => {
+    const textTransforms = {
+      ...DEFAULT_TEXT_TRANSFORMS,
+      ...settings.textTransforms
+    };
+
+    onSettingsChange({
+      textTransforms: {
+        ...textTransforms,
+        [settings.primaryAspect]: {
+          ...activeTextTransform,
+          [layer]: {
+            ...activeTextTransform[layer],
+            ...patch
+          }
         }
       }
     });
@@ -314,6 +342,12 @@ export function Inspector({
               <span>Song file</span>
               <strong>{assetName(project.selectedSongPath)}</strong>
             </div>
+            <div className="inline-actions">
+              <button className="secondary-button" type="button" onClick={() => onRelinkMedia('song')}>
+                <FolderOpen size={15} />
+                Relink song
+              </button>
+            </div>
             <Field label="Cover art">
               <select value={project.coverArtPath ?? ''} onChange={(event) => {
                 if (!event.target.value) {
@@ -327,6 +361,15 @@ export function Inspector({
                 {scan?.groups.coverArt.map((asset) => <option key={asset.id} value={asset.path}>{asset.name}</option>)}
               </select>
             </Field>
+            <div className="inline-actions">
+              <button className="secondary-button" type="button" onClick={() => onRelinkMedia('cover')}>
+                <FolderOpen size={15} />
+                Relink cover art
+              </button>
+              <button className="secondary-button" type="button" onClick={() => onSetCover(undefined)}>
+                None
+              </button>
+            </div>
             <Field label="Video cover art">
               <select value={project.videoCoverPath ?? ''} onChange={(event) => {
                 if (!event.target.value) {
@@ -340,6 +383,15 @@ export function Inspector({
                 {scan?.groups.videoCoverArt.map((asset) => <option key={asset.id} value={asset.path}>{asset.name}</option>)}
               </select>
             </Field>
+            <div className="inline-actions">
+              <button className="secondary-button" type="button" onClick={() => onRelinkMedia('video')}>
+                <FolderOpen size={15} />
+                Relink video cover
+              </button>
+              <button className="secondary-button" type="button" onClick={() => onSetVideo(undefined)}>
+                None
+              </button>
+            </div>
             <Field label="Teaser duration">
               <input
                 type="number"
@@ -417,6 +469,19 @@ export function Inspector({
                 <option value="bottom-center">Bottom Center</option>
               </select>
             </Field>
+            <div className="notice">Text positions are stored per aspect ratio. Drag text directly in the preview or use these controls.</div>
+            <Field label="Title X">
+              <input type="range" min="0" max="100" step="0.5" value={activeTextTransform.title.x} onChange={(event) => updateActiveTextTransform('title', { x: Number(event.target.value) })} />
+            </Field>
+            <Field label="Title Y">
+              <input type="range" min="0" max="100" step="0.5" value={activeTextTransform.title.y} onChange={(event) => updateActiveTextTransform('title', { y: Number(event.target.value) })} />
+            </Field>
+            <Field label="Subtitle X">
+              <input type="range" min="0" max="100" step="0.5" value={activeTextTransform.subtitle.x} onChange={(event) => updateActiveTextTransform('subtitle', { x: Number(event.target.value) })} />
+            </Field>
+            <Field label="Subtitle Y">
+              <input type="range" min="0" max="100" step="0.5" value={activeTextTransform.subtitle.y} onChange={(event) => updateActiveTextTransform('subtitle', { y: Number(event.target.value) })} />
+            </Field>
             <Field label="Glow amount">
               <input type="range" min="0" max="80" value={settings.glowAmount} onChange={(event) => onSettingsChange({ glowAmount: Number(event.target.value) })} />
             </Field>
@@ -446,6 +511,13 @@ export function Inspector({
               </select>
             </Field>
             <div className="notice">Media framing applies to the active aspect ratio. Drag the preview to reposition; Ctrl+wheel scales it.</div>
+            <Field label="Media fit">
+              <select value={activeMediaTransform.fitMode} onChange={(event) => updateActiveMediaTransform({ fitMode: event.target.value as typeof activeMediaTransform.fitMode })}>
+                <option value="fit">Fit crop</option>
+                <option value="contain">Contain</option>
+                <option value="fill">Fill stretch</option>
+              </select>
+            </Field>
             <Field label="Media X">
               <input type="range" min="0" max="100" step="0.5" value={activeMediaTransform.positionX} onChange={(event) => updateActiveMediaTransform({ positionX: Number(event.target.value) })} />
             </Field>
@@ -454,6 +526,9 @@ export function Inspector({
             </Field>
             <Field label="Media scale">
               <input type="range" min="1" max="2.5" step="0.01" value={activeMediaTransform.scale} onChange={(event) => updateActiveMediaTransform({ scale: Number(event.target.value) })} />
+            </Field>
+            <Field label="Media rotation">
+              <input type="range" min="-45" max="45" step="0.5" value={activeMediaTransform.rotation} onChange={(event) => updateActiveMediaTransform({ rotation: Number(event.target.value) })} />
             </Field>
             <button className="secondary-button" type="button" onClick={() => updateActiveMediaTransform(DEFAULT_MEDIA_TRANSFORMS[settings.primaryAspect])}>
               Reset active framing
@@ -491,6 +566,9 @@ export function Inspector({
             <Field label="Normalize audio">
               <Switch checked={settings.normalizeAudio} onChange={(normalizeAudio) => onSettingsChange({ normalizeAudio })} />
             </Field>
+            <Field label="Audio gain">
+              <input type="range" min="0" max="2" step="0.01" value={settings.audioGain} onChange={(event) => onSettingsChange({ audioGain: Number(event.target.value) })} />
+            </Field>
             <Field label="Fade in/out">
               <Switch checked={settings.fadeAudio} onChange={(fadeAudio) => onSettingsChange({ fadeAudio })} />
             </Field>
@@ -510,6 +588,7 @@ export function Inspector({
               <Play size={15} />
               Play selected region
             </button>
+            <div className="notice">Drag the fade handles on the waveform lane to adjust fade length visually. Click or drag the waveform lane to scrub.</div>
           </div>
         )}
 
@@ -552,6 +631,16 @@ export function Inspector({
                 Export all formats
               </button>
             </div>
+            <div className="inline-actions">
+              <button className="secondary-button" type="button" onClick={onCancelExports} disabled={!exporting}>
+                <CircleAlert size={15} />
+                Cancel exports
+              </button>
+              <button className="secondary-button" type="button" onClick={onOpenOutputFolder}>
+                <FolderOpen size={15} />
+                Open output folder
+              </button>
+            </div>
             <div className={`ffmpeg-status ${ffmpegStatus?.available ? 'ok' : 'warn'}`}>
               {ffmpegStatus?.available ? <CheckCircle2 size={15} /> : <CircleAlert size={15} />}
               <span>{ffmpegStatus?.message ?? 'FFmpeg status not checked'}</span>
@@ -578,6 +667,16 @@ export function Inspector({
               {ffmpegStatus?.available ? <CheckCircle2 size={15} /> : <CircleAlert size={15} />}
               <span>{ffmpegStatus?.path ?? ffmpegStatus?.message ?? 'No FFmpeg check has run yet.'}</span>
             </div>
+            {(appSettings.recentProjects ?? []).length > 0 && (
+              <div className="recent-projects">
+                <div className="mini-heading">Recent Projects</div>
+                {(appSettings.recentProjects ?? []).map((rootPath) => (
+                  <button key={rootPath} type="button" onClick={() => onLoadRecentProject(rootPath)}>
+                    {rootPath}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>

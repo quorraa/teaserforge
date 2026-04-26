@@ -666,23 +666,81 @@ button:disabled {
   color: white;
 }
 
+.preview-text-layer {
+  position: absolute;
+  z-index: 5;
+  max-width: 82%;
+  color: white;
+  cursor: move;
+  user-select: none;
+}
+
+.preview-text-layer.dragging {
+  outline: 1px solid rgba(0, 216, 255, 0.7);
+  outline-offset: 6px;
+}
+
+.preview-text-layer h3,
+.preview-text-layer p,
 .preview-copy h3,
 .preview-copy p {
   margin: 0;
   overflow-wrap: anywhere;
 }
 
+.preview-text-layer h3,
 .preview-copy h3 {
   font-weight: 900;
   line-height: 0.95;
   text-transform: uppercase;
 }
 
+.preview-text-layer p,
 .preview-copy p {
-  margin-top: 8px;
   color: #cfe9ff;
   font-size: 15px;
   letter-spacing: 0;
+}
+
+.preview-transform-box {
+  position: absolute;
+  inset: 9%;
+  z-index: 4;
+  border: 1px solid rgba(0, 216, 255, 0.42);
+  pointer-events: none;
+}
+
+.transform-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 1px solid rgba(0, 216, 255, 0.85);
+  border-radius: 2px;
+  background: rgba(5, 12, 20, 0.9);
+  pointer-events: auto;
+  cursor: nwse-resize;
+}
+
+.transform-handle.nw {
+  left: -6px;
+  top: -6px;
+}
+
+.transform-handle.ne {
+  right: -6px;
+  top: -6px;
+  cursor: nesw-resize;
+}
+
+.transform-handle.sw {
+  left: -6px;
+  bottom: -6px;
+  cursor: nesw-resize;
+}
+
+.transform-handle.se {
+  right: -6px;
+  bottom: -6px;
 }
 
 .text-bottom-center {
@@ -866,7 +924,7 @@ button:disabled {
 .timeline-editor {
   min-height: 0;
   display: grid;
-  grid-template-columns: 136px 1fr;
+  grid-template-columns: 156px 1fr;
   grid-template-rows: 30px minmax(0, 1fr);
   overflow: hidden;
 }
@@ -939,6 +997,39 @@ button:disabled {
   border-bottom: 1px solid var(--line);
   color: #c8d8ec;
   font-size: 12px;
+}
+
+.track-label-controls {
+  justify-content: space-between;
+  gap: 5px;
+  padding: 0 7px 0 10px;
+}
+
+.track-label-controls > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.track-label-controls button {
+  width: 19px;
+  height: 19px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 19px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.track-label-controls button:hover {
+  border-color: var(--line);
+  color: var(--text);
+  background: rgba(143, 177, 219, 0.08);
 }
 
 .track-lane {
@@ -1077,6 +1168,11 @@ button:disabled {
   right: 3px;
 }
 
+.clip.locked {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
 .text-clip {
   color: #d9f6ff;
   background: rgba(0, 216, 255, 0.12);
@@ -1180,6 +1276,42 @@ button:disabled {
 .export-chip.landscape.active {
   border-color: rgba(0, 216, 255, 0.75);
   background: rgba(0, 216, 255, 0.2);
+}
+
+.timeline-edit-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.beat-marker {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: rgba(0, 216, 255, 0.82);
+  box-shadow: 0 0 12px rgba(0, 216, 255, 0.62);
+}
+
+.audio-fade-handle {
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  width: 9px;
+  z-index: 10;
+  transform: translateX(-50%);
+  border: 1px solid rgba(255, 255, 255, 0.46);
+  border-radius: 999px;
+  background: rgba(0, 216, 255, 0.72);
+  cursor: ew-resize;
+  box-shadow: 0 0 14px rgba(0, 216, 255, 0.42);
+}
+
+.audio-fade-handle.fade-out {
+  background: rgba(139, 92, 246, 0.72);
+  box-shadow: 0 0 14px rgba(139, 92, 246, 0.42);
 }
 
 .tabs {
@@ -1409,6 +1541,43 @@ button:disabled {
 
 .export-buttons button {
   width: 100%;
+}
+
+.inline-actions {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.inline-actions .secondary-button {
+  flex: 1;
+  min-width: 0;
+}
+
+.recent-projects {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.recent-projects button {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--text);
+  text-align: left;
+  padding: 8px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-projects button:hover {
+  border-color: var(--line-strong);
+  background: rgba(0, 216, 255, 0.08);
 }
 
 .ffmpeg-status {

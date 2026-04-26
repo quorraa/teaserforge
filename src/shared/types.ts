@@ -75,6 +75,7 @@ export type WaveformStyle = 'minimal' | 'neon' | 'pixel' | 'glass';
 export type ExportQuality = 'draft' | 'high-1080p' | 'master';
 export type ExportFormat = 'h264-mp4' | 'prores-mov';
 export type BackgroundType = 'static-cover' | 'video-cover' | 'hybrid';
+export type MediaFitMode = 'fit' | 'fill' | 'contain';
 export type PositionPreset = 'top-left' | 'top-center' | 'center' | 'bottom-left' | 'bottom-center';
 
 export interface EffectSettings {
@@ -86,6 +87,18 @@ export interface MediaTransform {
   positionX: number;
   positionY: number;
   scale: number;
+  rotation: number;
+  fitMode: MediaFitMode;
+}
+
+export interface TextLayerTransform {
+  x: number;
+  y: number;
+}
+
+export interface TextTransform {
+  title: TextLayerTransform;
+  subtitle: TextLayerTransform;
 }
 
 export interface TeaserSettings {
@@ -105,6 +118,7 @@ export interface TeaserSettings {
   letterSpacing: number;
   textAnimation: TextAnimationPreset;
   mediaTransforms: Record<AspectRatioKey, MediaTransform>;
+  textTransforms: Record<AspectRatioKey, TextTransform>;
   backgroundType: BackgroundType;
   effects: {
     particles: EffectSettings;
@@ -121,6 +135,7 @@ export interface TeaserSettings {
   normalizeAudio: boolean;
   fadeAudio: boolean;
   fadeDuration: number;
+  audioGain: number;
   regionStart: number;
   regionEnd: number;
   loopRegion: boolean;
@@ -134,6 +149,12 @@ export interface TeaserSettings {
 
 export type TimelineTrackId = 'text' | 'cover' | 'video' | 'effects';
 export type TimelineClipKind = 'title' | 'subtitle' | 'cover-art' | 'video-cover' | 'effect';
+
+export interface TimelineTrackState {
+  visible: boolean;
+  muted: boolean;
+  locked: boolean;
+}
 
 export interface TimelineClip {
   id: string;
@@ -155,13 +176,16 @@ export interface TimelineExportMarker {
 }
 
 export interface TimelineSelection {
-  type: 'clip' | 'export-marker' | 'export-range';
-  id: string;
+  type: 'clip' | 'clips' | 'export-marker' | 'export-range';
+  id?: string;
+  ids?: string[];
 }
 
 export interface TimelineState {
   clips: TimelineClip[];
   exportMarkers: TimelineExportMarker[];
+  tracks: Record<TimelineTrackId, TimelineTrackState>;
+  beatMarkers: number[];
   selected?: TimelineSelection;
 }
 
@@ -182,6 +206,7 @@ export interface ProjectConfig {
 export interface AppSettings {
   ffmpegPath?: string;
   lastProjectPath?: string;
+  recentProjects?: string[];
 }
 
 export interface ExportTarget {
@@ -233,9 +258,22 @@ export const ASPECT_RATIOS: AspectRatioPreset[] = [
 ];
 
 export const DEFAULT_MEDIA_TRANSFORMS: Record<AspectRatioKey, MediaTransform> = {
-  '9x16': { positionX: 50, positionY: 50, scale: 1 },
-  '1x1': { positionX: 50, positionY: 50, scale: 1 },
-  '16x9': { positionX: 50, positionY: 50, scale: 1 }
+  '9x16': { positionX: 50, positionY: 50, scale: 1, rotation: 0, fitMode: 'fit' },
+  '1x1': { positionX: 50, positionY: 50, scale: 1, rotation: 0, fitMode: 'fit' },
+  '16x9': { positionX: 50, positionY: 50, scale: 1, rotation: 0, fitMode: 'fit' }
+};
+
+export const DEFAULT_TEXT_TRANSFORMS: Record<AspectRatioKey, TextTransform> = {
+  '9x16': { title: { x: 50, y: 72 }, subtitle: { x: 50, y: 81 } },
+  '1x1': { title: { x: 50, y: 66 }, subtitle: { x: 50, y: 76 } },
+  '16x9': { title: { x: 50, y: 62 }, subtitle: { x: 50, y: 73 } }
+};
+
+export const DEFAULT_TRACKS: Record<TimelineTrackId, TimelineTrackState> = {
+  text: { visible: true, muted: false, locked: false },
+  cover: { visible: true, muted: false, locked: false },
+  video: { visible: true, muted: false, locked: false },
+  effects: { visible: true, muted: false, locked: false }
 };
 
 export const DEFAULT_SETTINGS: TeaserSettings = {
@@ -255,6 +293,7 @@ export const DEFAULT_SETTINGS: TeaserSettings = {
   letterSpacing: 0,
   textAnimation: 'glitch-slide-up',
   mediaTransforms: DEFAULT_MEDIA_TRANSFORMS,
+  textTransforms: DEFAULT_TEXT_TRANSFORMS,
   backgroundType: 'video-cover',
   effects: {
     particles: { enabled: true, intensity: 0.35 },
@@ -271,6 +310,7 @@ export const DEFAULT_SETTINGS: TeaserSettings = {
   normalizeAudio: false,
   fadeAudio: true,
   fadeDuration: 0.4,
+  audioGain: 1,
   regionStart: 0,
   regionEnd: 15,
   loopRegion: false,
@@ -297,6 +337,8 @@ export const DEFAULT_TIMELINE: TimelineState = {
     { id: 'clip-effect-bloom', track: 'effects', kind: 'effect', label: 'Bloom Pulse', start: 7.4, end: 8.7, enabled: true, effectKey: 'bloomPulse' },
     { id: 'clip-effect-chroma', track: 'effects', kind: 'effect', label: 'Chromatic Aberration', start: 9.5, end: 11, enabled: true, effectKey: 'chromaticAberration' }
   ],
+  tracks: DEFAULT_TRACKS,
+  beatMarkers: [],
   exportMarkers: [
     { id: 'export-9x16', aspect: '9x16', label: '9:16 Export', start: 0, end: 15 },
     { id: 'export-1x1', aspect: '1x1', label: '1:1 Export', start: 0, end: 15 },

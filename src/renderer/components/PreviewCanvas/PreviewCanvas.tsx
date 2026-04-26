@@ -1,7 +1,7 @@
-import type { DragEvent, PointerEvent as ReactPointerEvent } from 'react';
+import type { CSSProperties, DragEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
-import type { AspectRatioPreset, MediaAsset, MediaTransform, ProjectConfig, TeaserSettings } from '../../../shared/types';
-import { DEFAULT_MEDIA_TRANSFORMS } from '../../../shared/types';
+import type { AspectRatioPreset, MediaAsset, MediaTransform, ProjectConfig, TeaserSettings, TextLayerTransform } from '../../../shared/types';
+import { DEFAULT_MEDIA_TRANSFORMS, DEFAULT_TEXT_TRANSFORMS, DEFAULT_TRACKS } from '../../../shared/types';
 import { teaserForgeApi } from '../../lib/api';
 import { formatTime } from '../../lib/timecode';
 import { syntheticBars } from '../../lib/waveform';
@@ -17,6 +17,7 @@ interface PreviewCanvasProps {
   onSetPrimary: () => void;
   onDropAsset: (asset: MediaAsset) => void;
   onMediaTransformChange: (aspect: AspectRatioPreset['key'], patch: Partial<MediaTransform>) => void;
+  onTextTransformChange: (aspect: AspectRatioPreset['key'], layer: 'title' | 'subtitle', patch: Partial<TextLayerTransform>) => void;
 }
 
 interface PanStart {
@@ -29,6 +30,24 @@ interface PanStart {
   height: number;
 }
 
+interface ScaleStart {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  startScale: number;
+}
+
+interface TextPanStart {
+  pointerId: number;
+  layer: 'title' | 'subtitle';
+  startX: number;
+  startY: number;
+  startLayerX: number;
+  startLayerY: number;
+  width: number;
+  height: number;
+}
+
 function readDroppedAsset(event: DragEvent): MediaAsset | undefined {
   const raw = event.dataTransfer.getData('application/x-teaserforge-asset');
   if (!raw) return undefined;
@@ -37,10 +56,6 @@ function readDroppedAsset(event: DragEvent): MediaAsset | undefined {
   } catch {
     return undefined;
   }
-}
-
-function textPositionClass(position: ProjectConfig['settings']['positionPreset']): string {
-  return `text-${position}`;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -57,21 +72,28 @@ export function PreviewCanvas({
   isDemo,
   onSetPrimary,
   onDropAsset,
-  onMediaTransformChange
+  onMediaTransformChange,
+  onTextTransformChange
 }: PreviewCanvasProps) {
   const settings = project.settings;
   const panStartRef = useRef<PanStart | null>(null);
+  const scaleStartRef = useRef<ScaleStart | null>(null);
+  const textPanStartRef = useRef<TextPanStart | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [videoFailed, setVideoFailed] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
+  const [draggingText, setDraggingText] = useState<'title' | 'subtitle' | null>(null);
   const duration = Math.max(1, settings.endOffset - settings.startOffset || settings.teaserDuration);
   const progress = Math.min(1, Math.max(0, currentTime / duration));
-  const wantsVideo = settings.backgroundType !== 'static-cover' && video && !videoFailed;
-  const background = wantsVideo ? video : cover;
+  const tracks = { ...DEFAULT_TRACKS, ...project.timeline.tracks };
+  const wantsVideo = settings.backgroundType !== 'static-cover' && video && !videoFailed && tracks.video.visible && !tracks.video.muted;
+  const background = wantsVideo ? video : tracks.cover.visible && !tracks.cover.muted ? cover : undefined;
   const mediaTransform = settings.mediaTransforms?.[preset.key] ?? DEFAULT_MEDIA_TRANSFORMS[preset.key];
-  const mediaStyle = {
+  const textTransform = settings.textTransforms?.[preset.key] ?? DEFAULT_TEXT_TRANSFORMS[preset.key];
+  const mediaStyle: CSSProperties = {
     objectPosition: `${mediaTransform.positionX}% ${mediaTransform.positionY}%`,
-    transform: `scale(${mediaTransform.scale})`,
+    objectFit: mediaTransform.fitMode === 'fill' ? 'fill' : mediaTransform.fitMode === 'contain' ? 'contain' : 'cover',
+    transform: `scale(${mediaTransform.scale}) rotate(${mediaTransform.rotation}deg)`,
     transformOrigin: `${mediaTransform.positionX}% ${mediaTransform.positionY}%`
   };
   const bars = syntheticBars(preset.key === '16x9' ? 72 : 48, project.selectedSongPath ?? project.title);
@@ -81,9 +103,11 @@ export function PreviewCanvas({
   const clipIsActive = (kind: 'title' | 'subtitle'): boolean =>
     project.timeline.clips.some((clip) => clip.kind === kind && clip.enabled && currentTime >= clip.start && currentTime <= clip.end);
   const effectIsActive = (effectKey: keyof TeaserSettings['effects']): boolean =>
+    tracks.effects.visible &&
+    !tracks.effects.muted &&
     project.timeline.clips.some((clip) => clip.kind === 'effect' && clip.effectKey === effectKey && clip.enabled && currentTime >= clip.start && currentTime <= clip.end);
-  const titleActive = settings.titleVisible && Boolean(titleText) && clipIsActive('title');
-  const subtitleActive = settings.subtitleVisible && Boolean(subtitleText) && clipIsActive('subtitle');
+  const titleActive = tracks.text.visible && !tracks.text.muted && settings.titleVisible && Boolean(titleText) && clipIsActive('title');
+  const subtitleActive = tracks.text.visible && !tracks.text.muted && settings.subtitleVisible && Boolean(subtitleText) && clipIsActive('subtitle');
 
   useEffect(() => {
     setVideoFailed(false);
@@ -125,6 +149,24 @@ export function PreviewCanvas({
   };
 
   const moveMediaPan = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    const scaleStart = scaleStartRef.current;
+    if (scaleStart && scaleStart.pointerId === event.pointerId) {
+      event.preventDefault();
+      const delta = ((event.clientX - scaleStart.startX) - (event.clientY - scaleStart.startY)) / 240;
+      onMediaTransformChange(preset.key, { scale: Math.round(clamp(scaleStart.startScale + delta, 1, 2.5) * 100) / 100 });
+      return;
+    }
+
+    const textPanStart = textPanStartRef.current;
+    if (textPanStart && textPanStart.pointerId === event.pointerId) {
+      event.preventDefault();
+      onTextTransformChange(preset.key, textPanStart.layer, {
+        x: clamp(textPanStart.startLayerX + ((event.clientX - textPanStart.startX) / textPanStart.width) * 100, 0, 100),
+        y: clamp(textPanStart.startLayerY + ((event.clientY - textPanStart.startY) / textPanStart.height) * 100, 0, 100)
+      });
+      return;
+    }
+
     const panStart = panStartRef.current;
     if (!panStart || panStart.pointerId !== event.pointerId) return;
     event.preventDefault();
@@ -138,12 +180,71 @@ export function PreviewCanvas({
   };
 
   const endMediaPan = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    const scaleStart = scaleStartRef.current;
+    if (scaleStart && scaleStart.pointerId === event.pointerId) {
+      scaleStartRef.current = null;
+      setIsPanning(false);
+      event.currentTarget.releasePointerCapture(event.pointerId);
+      return;
+    }
+
+    const textPanStart = textPanStartRef.current;
+    if (textPanStart && textPanStart.pointerId === event.pointerId) {
+      textPanStartRef.current = null;
+      setDraggingText(null);
+      event.currentTarget.releasePointerCapture(event.pointerId);
+      return;
+    }
+
     const panStart = panStartRef.current;
     if (!panStart || panStart.pointerId !== event.pointerId) return;
     panStartRef.current = null;
     setIsPanning(false);
     event.currentTarget.releasePointerCapture(event.pointerId);
   };
+
+  const beginMediaScale = (event: ReactPointerEvent<HTMLButtonElement>): void => {
+    if (!background) return;
+    onSetPrimary();
+    event.preventDefault();
+    event.stopPropagation();
+    scaleStartRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startScale: mediaTransform.scale
+    };
+    stageRef.current?.setPointerCapture(event.pointerId);
+    setIsPanning(true);
+  };
+
+  const beginTextDrag = (event: ReactPointerEvent<HTMLDivElement>, layer: 'title' | 'subtitle'): void => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    onSetPrimary();
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = stage.getBoundingClientRect();
+    const layerTransform = textTransform[layer];
+    textPanStartRef.current = {
+      pointerId: event.pointerId,
+      layer,
+      startX: event.clientX,
+      startY: event.clientY,
+      startLayerX: layerTransform.x,
+      startLayerY: layerTransform.y,
+      width: rect.width,
+      height: rect.height
+    };
+    stage.setPointerCapture(event.pointerId);
+    setDraggingText(layer);
+  };
+
+  const textLayerStyle = (layer: 'title' | 'subtitle') => ({
+    left: `${textTransform[layer].x}%`,
+    top: `${textTransform[layer].y}%`,
+    transform: 'translate(-50%, -50%)'
+  });
 
   return (
     <section
@@ -194,9 +295,16 @@ export function PreviewCanvas({
           {settings.showGrid && <div className="preview-grid" />}
           {settings.showSafeArea && <div className="preview-safe-area" />}
 
-          {(titleActive || subtitleActive) && (
-            <div className={`preview-copy ${textPositionClass(settings.positionPreset)}`}>
-            {titleActive && (
+          {background && isPrimary && (
+            <div className="preview-transform-box">
+              {['nw', 'ne', 'sw', 'se'].map((handle) => (
+                <button key={handle} className={`transform-handle ${handle}`} type="button" title="Drag to scale media" onPointerDown={beginMediaScale} />
+              ))}
+            </div>
+          )}
+
+          {titleActive && (
+            <div className={`preview-text-layer title ${draggingText === 'title' ? 'dragging' : ''}`} style={textLayerStyle('title')} onPointerDown={(event) => beginTextDrag(event, 'title')}>
               <h3
                 style={{
                   fontFamily: settings.fontFamily,
@@ -207,8 +315,11 @@ export function PreviewCanvas({
               >
                 {titleText}
               </h3>
-            )}
-            {subtitleActive && <p>{subtitleText}</p>}
+            </div>
+          )}
+          {subtitleActive && (
+            <div className={`preview-text-layer subtitle ${draggingText === 'subtitle' ? 'dragging' : ''}`} style={textLayerStyle('subtitle')} onPointerDown={(event) => beginTextDrag(event, 'subtitle')}>
+              <p>{subtitleText}</p>
             </div>
           )}
 

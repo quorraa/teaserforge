@@ -12,6 +12,8 @@ import { createDemoProject, createDemoScan } from './demoProject';
 type TeaserForgeRendererApi = {
   selectProjectFolder: () => Promise<string | undefined>;
   selectOutputFolder: () => Promise<string | undefined>;
+  selectMediaFile: () => Promise<string | undefined>;
+  openPath: (targetPath: string) => Promise<string>;
   scanProjectFolder: (rootPath: string) => Promise<MediaScanResult>;
   loadProjectConfig: (rootPath: string) => Promise<ProjectConfig>;
   saveProjectConfig: (project: ProjectConfig) => Promise<ProjectConfig>;
@@ -19,6 +21,7 @@ type TeaserForgeRendererApi = {
   saveAppSettings: (settings: AppSettings) => Promise<AppSettings>;
   checkFfmpeg: () => Promise<FfmpegStatus>;
   exportBatch: (request: ExportBatchRequest) => Promise<ExportResult[]>;
+  cancelExports: () => Promise<boolean>;
   onExportProgress: (callback: (event: ExportProgressEvent) => void) => () => void;
   mediaUrl: (filePath?: string) => string;
 };
@@ -27,6 +30,8 @@ function browserFallbackApi(): TeaserForgeRendererApi {
   return {
     selectProjectFolder: async () => undefined,
     selectOutputFolder: async () => undefined,
+    selectMediaFile: async () => undefined,
+    openPath: async () => '',
     scanProjectFolder: async () => createDemoScan(),
     loadProjectConfig: async () => createDemoProject(),
     saveProjectConfig: async (project) => project,
@@ -42,6 +47,7 @@ function browserFallbackApi(): TeaserForgeRendererApi {
     exportBatch: async () => {
       throw new Error('Export is available in the Electron desktop app.');
     },
+    cancelExports: async () => false,
     onExportProgress: () => () => undefined,
     mediaUrl: () => ''
   };
