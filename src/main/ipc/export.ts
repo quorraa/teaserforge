@@ -12,9 +12,10 @@ import type {
   ExportRequest,
   ExportResult,
   FfmpegStatus,
+  MotionEasing,
   ProjectConfig
 } from '../../shared/types';
-import { DEFAULT_MEDIA_TRANSFORMS, DEFAULT_TEXT_TRANSFORMS } from '../../shared/types';
+import { DEFAULT_MEDIA_MOTION, DEFAULT_MEDIA_TRANSFORMS, DEFAULT_TEXT_TRANSFORMS } from '../../shared/types';
 
 const activeExportProcesses = new Set<ChildProcessWithoutNullStreams>();
 let cancelRequested = false;
@@ -93,24 +94,66 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+function expressionNumber(value: number): string {
+  return Number(value.toFixed(5)).toString();
+}
+
+function easingExpression(duration: number, easing: MotionEasing): string {
+  const progress = `min(max(t/${expressionNumber(duration)},0),1)`;
+  if (easing === 'ease-in') return `pow(${progress},2)`;
+  if (easing === 'ease-out') return `(1-pow(1-${progress},2))`;
+  if (easing === 'ease-in-out') return `if(lt(${progress},0.5),2*${progress}*${progress},1-pow(-2*${progress}+2,2)/2)`;
+  if (easing === 'soft-drift') return `(0.5-0.5*cos(PI*${progress}))`;
+  return progress;
+}
+
+function keyframeExpression(from: number, to: number, duration: number, easing: MotionEasing): string {
+  const start = expressionNumber(from);
+  const delta = expressionNumber(to - from);
+  if (Math.abs(to - from) < 0.0001) return start;
+  return `(${start}+${delta}*${easingExpression(duration, easing)})`;
+}
+
 function buildFilter(project: ProjectConfig, request: ExportRequest): string {
   const { width, height } = request.target;
   const settings = project.settings;
+  const duration = Math.max(1, settings.endOffset - settings.startOffset || settings.teaserDuration);
   const mediaTransform = settings.mediaTransforms?.[request.target.aspect] ?? DEFAULT_MEDIA_TRANSFORMS[request.target.aspect];
+  const mediaMotion = settings.mediaMotion?.[request.target.aspect] ?? DEFAULT_MEDIA_MOTION[request.target.aspect];
+  const motionEnabled = mediaMotion.enabled;
   const textTransform = settings.textTransforms?.[request.target.aspect] ?? DEFAULT_TEXT_TRANSFORMS[request.target.aspect];
   const mediaScale = clamp(mediaTransform.scale || 1, 1, 2.5);
-  const mediaPositionX = (clamp(mediaTransform.positionX, 0, 100) / 100).toFixed(4);
-  const mediaPositionY = (clamp(mediaTransform.positionY, 0, 100) / 100).toFixed(4);
+  const mediaPositionX = motionEnabled
+    ? keyframeExpression(clamp(mediaMotion.start.positionX, 0, 100) / 100, clamp(mediaMotion.end.positionX, 0, 100) / 100, duration, mediaMotion.easing)
+    : (clamp(mediaTransform.positionX, 0, 100) / 100).toFixed(4);
+  const mediaPositionY = motionEnabled
+    ? keyframeExpression(clamp(mediaMotion.start.positionY, 0, 100) / 100, clamp(mediaMotion.end.positionY, 0, 100) / 100, duration, mediaMotion.easing)
+    : (clamp(mediaTransform.positionY, 0, 100) / 100).toFixed(4);
+  const mediaScaleExpression = motionEnabled
+    ? keyframeExpression(clamp(mediaMotion.start.scale || 1, 1, 2.5), clamp(mediaMotion.end.scale || 1, 1, 2.5), duration, mediaMotion.easing)
+    : mediaScale.toFixed(4);
   const scaledWidth = Math.ceil((width * mediaScale) / 2) * 2;
   const scaledHeight = Math.ceil((height * mediaScale) / 2) * 2;
-  const rotation = ((mediaTransform.rotation ?? 0) * Math.PI / 180).toFixed(5);
-  const fitFilter = mediaTransform.fitMode === 'fill'
-    ? `scale=${scaledWidth}:${scaledHeight},crop=${width}:${height}:x='(in_w-out_w)*${mediaPositionX}':y='(in_h-out_h)*${mediaPositionY}'`
-    : mediaTransform.fitMode === 'contain'
-      ? `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)*${mediaPositionX}:(oh-ih)*${mediaPositionY}:color=black`
-      : `scale=${scaledWidth}:${scaledHeight}:force_original_aspect_ratio=increase,crop=${width}:${height}:x='(in_w-out_w)*${mediaPositionX}':y='(in_h-out_h)*${mediaPositionY}'`;
-  const rotateFilter = Math.abs(mediaTransform.rotation ?? 0) > 0.01
-    ? `,rotate=${rotation}:ow=rotw(${rotation}):oh=roth(${rotation}):fillcolor=black,crop=${width}:${height}`
+  const dynamicScaledWidth = `ceil((${width}*${mediaScaleExpression})/2)*2`;
+  const dynamicScaledHeight = `ceil((${height}*${mediaScaleExpression})/2)*2`;
+  const rotationDegrees = motionEnabled
+    ? keyframeExpression(mediaMotion.start.rotation ?? 0, mediaMotion.end.rotation ?? 0, duration, mediaMotion.easing)
+    : expressionNumber(mediaTransform.rotation ?? 0);
+  const rotation = `((${rotationDegrees})*PI/180)`;
+  const hasRotation = motionEnabled
+    ? Math.abs(mediaMotion.start.rotation ?? 0) > 0.01 || Math.abs(mediaMotion.end.rotation ?? 0) > 0.01
+    : Math.abs(mediaTransform.rotation ?? 0) > 0.01;
+  const fitFilter = motionEnabled && mediaTransform.fitMode !== 'contain'
+    ? mediaTransform.fitMode === 'fill'
+      ? `scale=w='${dynamicScaledWidth}':h='${dynamicScaledHeight}':eval=frame,crop=${width}:${height}:x='(in_w-out_w)*${mediaPositionX}':y='(in_h-out_h)*${mediaPositionY}'`
+      : `scale=w='${dynamicScaledWidth}':h='${dynamicScaledHeight}':force_original_aspect_ratio=increase:eval=frame,crop=${width}:${height}:x='(in_w-out_w)*${mediaPositionX}':y='(in_h-out_h)*${mediaPositionY}'`
+    : mediaTransform.fitMode === 'fill'
+      ? `scale=${scaledWidth}:${scaledHeight},crop=${width}:${height}:x='(in_w-out_w)*${mediaPositionX}':y='(in_h-out_h)*${mediaPositionY}'`
+      : mediaTransform.fitMode === 'contain'
+        ? `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:x='(ow-iw)*${mediaPositionX}':y='(oh-ih)*${mediaPositionY}':color=black`
+        : `scale=${scaledWidth}:${scaledHeight}:force_original_aspect_ratio=increase,crop=${width}:${height}:x='(in_w-out_w)*${mediaPositionX}':y='(in_h-out_h)*${mediaPositionY}'`;
+  const rotateFilter = hasRotation
+    ? `,rotate=a='${rotation}':ow='ceil(sqrt(iw*iw+ih*ih)/2)*2':oh='ceil(sqrt(iw*iw+ih*ih)/2)*2':fillcolor=black,crop=${width}:${height}`
     : '';
   const title = escapeDrawtext(project.title || safeBaseName(project.selectedSongPath ?? 'TeaserForge'));
   const subtitle = escapeDrawtext(project.subtitle || '');
@@ -143,7 +186,7 @@ function buildFilter(project: ProjectConfig, request: ExportRequest): string {
 
   if (settings.progressBar) {
     const barY = height - margin;
-    const elapsed = `min(max(t/${settings.teaserDuration},0),1)`;
+    const elapsed = `min(max(t/${duration},0),1)`;
     filterParts.push(
       `${current}drawbox=x=${margin}:y=${barY}:w=${width - margin * 2}:h=6:color=0xffffff@0.18:t=fill,drawbox=x=${margin}:y=${barY}:w='(${width - margin * 2})*${elapsed}':h=6:color=0x00d8ff@0.95:t=fill[bar]`
     );

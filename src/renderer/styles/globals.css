@@ -712,35 +712,46 @@ button:disabled {
 
 .transform-handle {
   position: absolute;
-  width: 12px;
-  height: 12px;
-  border: 1px solid rgba(0, 216, 255, 0.85);
-  border-radius: 2px;
-  background: rgba(5, 12, 20, 0.9);
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(0, 216, 255, 0.86);
+  border-radius: 999px;
+  background: rgba(5, 12, 20, 0.92);
   pointer-events: auto;
-  cursor: nwse-resize;
+  cursor: grab;
+}
+
+.transform-handle::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  border-left-color: transparent;
+  border-bottom-color: transparent;
+  border-radius: 999px;
+  transform: rotate(28deg);
 }
 
 .transform-handle.nw {
-  left: -6px;
-  top: -6px;
+  left: -9px;
+  top: -9px;
 }
 
 .transform-handle.ne {
-  right: -6px;
-  top: -6px;
-  cursor: nesw-resize;
+  right: -9px;
+  top: -9px;
 }
 
 .transform-handle.sw {
-  left: -6px;
-  bottom: -6px;
-  cursor: nesw-resize;
+  left: -9px;
+  bottom: -9px;
 }
 
 .transform-handle.se {
-  right: -6px;
-  bottom: -6px;
+  right: -9px;
+  bottom: -9px;
 }
 
 .text-bottom-center {

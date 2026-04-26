@@ -76,6 +76,7 @@ export type ExportQuality = 'draft' | 'high-1080p' | 'master';
 export type ExportFormat = 'h264-mp4' | 'prores-mov';
 export type BackgroundType = 'static-cover' | 'video-cover' | 'hybrid';
 export type MediaFitMode = 'fit' | 'fill' | 'contain';
+export type MotionEasing = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'soft-drift';
 export type PositionPreset = 'top-left' | 'top-center' | 'center' | 'bottom-left' | 'bottom-center';
 
 export interface EffectSettings {
@@ -89,6 +90,13 @@ export interface MediaTransform {
   scale: number;
   rotation: number;
   fitMode: MediaFitMode;
+}
+
+export interface MediaMotionKeyframes {
+  enabled: boolean;
+  easing: MotionEasing;
+  start: MediaTransform;
+  end: MediaTransform;
 }
 
 export interface TextLayerTransform {
@@ -118,6 +126,7 @@ export interface TeaserSettings {
   letterSpacing: number;
   textAnimation: TextAnimationPreset;
   mediaTransforms: Record<AspectRatioKey, MediaTransform>;
+  mediaMotion: Record<AspectRatioKey, MediaMotionKeyframes>;
   textTransforms: Record<AspectRatioKey, TextTransform>;
   backgroundType: BackgroundType;
   effects: {
@@ -266,6 +275,27 @@ export const DEFAULT_MEDIA_TRANSFORMS: Record<AspectRatioKey, MediaTransform> = 
   '16x9': { positionX: 50, positionY: 50, scale: 1, rotation: 0, fitMode: 'fit' }
 };
 
+export const DEFAULT_MEDIA_MOTION: Record<AspectRatioKey, MediaMotionKeyframes> = {
+  '9x16': {
+    enabled: false,
+    easing: 'ease-out',
+    start: { ...DEFAULT_MEDIA_TRANSFORMS['9x16'] },
+    end: { ...DEFAULT_MEDIA_TRANSFORMS['9x16'], scale: 1.08 }
+  },
+  '1x1': {
+    enabled: false,
+    easing: 'ease-out',
+    start: { ...DEFAULT_MEDIA_TRANSFORMS['1x1'] },
+    end: { ...DEFAULT_MEDIA_TRANSFORMS['1x1'], scale: 1.08 }
+  },
+  '16x9': {
+    enabled: false,
+    easing: 'ease-out',
+    start: { ...DEFAULT_MEDIA_TRANSFORMS['16x9'] },
+    end: { ...DEFAULT_MEDIA_TRANSFORMS['16x9'], scale: 1.08 }
+  }
+};
+
 export const DEFAULT_TEXT_TRANSFORMS: Record<AspectRatioKey, TextTransform> = {
   '9x16': { title: { x: 50, y: 72 }, subtitle: { x: 50, y: 81 } },
   '1x1': { title: { x: 50, y: 66 }, subtitle: { x: 50, y: 76 } },
@@ -296,6 +326,7 @@ export const DEFAULT_SETTINGS: TeaserSettings = {
   letterSpacing: 0,
   textAnimation: 'glitch-slide-up',
   mediaTransforms: DEFAULT_MEDIA_TRANSFORMS,
+  mediaMotion: DEFAULT_MEDIA_MOTION,
   textTransforms: DEFAULT_TEXT_TRANSFORMS,
   backgroundType: 'video-cover',
   effects: {

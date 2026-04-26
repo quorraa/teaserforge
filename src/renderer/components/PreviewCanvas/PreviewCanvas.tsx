@@ -1,6 +1,6 @@
 import type { CSSProperties, DragEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
-import type { AspectRatioPreset, MediaAsset, MediaTransform, ProjectConfig, TeaserSettings, TextLayerTransform } from '../../../shared/types';
+import type { AspectRatioPreset, MediaAsset, MediaTransform, MotionEasing, ProjectConfig, TeaserSettings, TextLayerTransform } from '../../../shared/types';
 import { DEFAULT_MEDIA_TRANSFORMS, DEFAULT_TEXT_TRANSFORMS, DEFAULT_TRACKS } from '../../../shared/types';
 import { teaserForgeApi } from '../../lib/api';
 import { formatTime } from '../../lib/timecode';
@@ -30,11 +30,12 @@ interface PanStart {
   height: number;
 }
 
-interface ScaleStart {
+interface RotateStart {
   pointerId: number;
-  startX: number;
-  startY: number;
-  startScale: number;
+  centerX: number;
+  centerY: number;
+  startAngle: number;
+  startRotation: number;
 }
 
 interface TextPanStart {
@@ -68,6 +69,38 @@ function fadeLevelAtTime(currentTime: number, duration: number, fadeInDuration: 
   return clamp(Math.min(fadeInLevel, fadeOutLevel), 0, 1);
 }
 
+function angleFromCenter(clientX: number, clientY: number, centerX: number, centerY: number): number {
+  return Math.atan2(clientY - centerY, clientX - centerX) * (180 / Math.PI);
+}
+
+function normalizeRotation(value: number): number {
+  const normalized = ((((value + 180) % 360) + 360) % 360) - 180;
+  return Math.round(normalized * 2) / 2;
+}
+
+function easeProgress(progress: number, easing: MotionEasing): number {
+  const value = clamp(progress, 0, 1);
+  if (easing === 'ease-in') return value * value;
+  if (easing === 'ease-out') return 1 - (1 - value) * (1 - value);
+  if (easing === 'ease-in-out') return value < 0.5 ? 2 * value * value : 1 - ((-2 * value + 2) ** 2) / 2;
+  if (easing === 'soft-drift') return 0.5 - 0.5 * Math.cos(Math.PI * value);
+  return value;
+}
+
+function lerp(from: number, to: number, progress: number): number {
+  return from + (to - from) * progress;
+}
+
+function interpolateMediaTransform(start: MediaTransform, end: MediaTransform, progress: number, fallback: MediaTransform): MediaTransform {
+  return {
+    positionX: lerp(start.positionX, end.positionX, progress),
+    positionY: lerp(start.positionY, end.positionY, progress),
+    scale: lerp(start.scale, end.scale, progress),
+    rotation: lerp(start.rotation, end.rotation, progress),
+    fitMode: fallback.fitMode
+  };
+}
+
 export function PreviewCanvas({
   preset,
   project,
@@ -83,7 +116,7 @@ export function PreviewCanvas({
 }: PreviewCanvasProps) {
   const settings = project.settings;
   const panStartRef = useRef<PanStart | null>(null);
-  const scaleStartRef = useRef<ScaleStart | null>(null);
+  const rotateStartRef = useRef<RotateStart | null>(null);
   const textPanStartRef = useRef<TextPanStart | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [videoFailed, setVideoFailed] = useState(false);
@@ -100,12 +133,17 @@ export function PreviewCanvas({
   const wantsVideo = settings.backgroundType !== 'static-cover' && video && !videoFailed && tracks.video.visible && !tracks.video.muted;
   const background = wantsVideo ? video : tracks.cover.visible && !tracks.cover.muted ? cover : undefined;
   const mediaTransform = settings.mediaTransforms?.[preset.key] ?? DEFAULT_MEDIA_TRANSFORMS[preset.key];
+  const mediaMotion = settings.mediaMotion?.[preset.key];
+  const motionProgress = mediaMotion?.enabled ? easeProgress(progress, mediaMotion.easing) : progress;
+  const displayMediaTransform = mediaMotion?.enabled
+    ? interpolateMediaTransform(mediaMotion.start, mediaMotion.end, motionProgress, mediaTransform)
+    : mediaTransform;
   const textTransform = settings.textTransforms?.[preset.key] ?? DEFAULT_TEXT_TRANSFORMS[preset.key];
   const mediaStyle: CSSProperties = {
-    objectPosition: `${mediaTransform.positionX}% ${mediaTransform.positionY}%`,
+    objectPosition: `${displayMediaTransform.positionX}% ${displayMediaTransform.positionY}%`,
     objectFit: mediaTransform.fitMode === 'fill' ? 'fill' : mediaTransform.fitMode === 'contain' ? 'contain' : 'cover',
-    transform: `scale(${mediaTransform.scale}) rotate(${mediaTransform.rotation}deg)`,
-    transformOrigin: `${mediaTransform.positionX}% ${mediaTransform.positionY}%`
+    transform: `scale(${displayMediaTransform.scale}) rotate(${displayMediaTransform.rotation}deg)`,
+    transformOrigin: `${displayMediaTransform.positionX}% ${displayMediaTransform.positionY}%`
   };
   const bars = syntheticBars(preset.key === '16x9' ? 72 : 48, project.selectedSongPath ?? project.title);
   const backgroundUrl = !isDemo && background ? teaserForgeApi.mediaUrl(background.path) : '';
@@ -160,11 +198,11 @@ export function PreviewCanvas({
   };
 
   const moveMediaPan = (event: ReactPointerEvent<HTMLDivElement>): void => {
-    const scaleStart = scaleStartRef.current;
-    if (scaleStart && scaleStart.pointerId === event.pointerId) {
+    const rotateStart = rotateStartRef.current;
+    if (rotateStart && rotateStart.pointerId === event.pointerId) {
       event.preventDefault();
-      const delta = ((event.clientX - scaleStart.startX) - (event.clientY - scaleStart.startY)) / 240;
-      onMediaTransformChange(preset.key, { scale: Math.round(clamp(scaleStart.startScale + delta, 1, 2.5) * 100) / 100 });
+      const angle = angleFromCenter(event.clientX, event.clientY, rotateStart.centerX, rotateStart.centerY);
+      onMediaTransformChange(preset.key, { rotation: normalizeRotation(rotateStart.startRotation + angle - rotateStart.startAngle) });
       return;
     }
 
@@ -191,9 +229,9 @@ export function PreviewCanvas({
   };
 
   const endMediaPan = (event: ReactPointerEvent<HTMLDivElement>): void => {
-    const scaleStart = scaleStartRef.current;
-    if (scaleStart && scaleStart.pointerId === event.pointerId) {
-      scaleStartRef.current = null;
+    const rotateStart = rotateStartRef.current;
+    if (rotateStart && rotateStart.pointerId === event.pointerId) {
+      rotateStartRef.current = null;
       setIsPanning(false);
       event.currentTarget.releasePointerCapture(event.pointerId);
       return;
@@ -214,18 +252,23 @@ export function PreviewCanvas({
     event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
-  const beginMediaScale = (event: ReactPointerEvent<HTMLButtonElement>): void => {
-    if (!background) return;
+  const beginMediaRotate = (event: ReactPointerEvent<HTMLButtonElement>): void => {
+    const stage = stageRef.current;
+    if (!background || !stage) return;
     onSetPrimary();
     event.preventDefault();
     event.stopPropagation();
-    scaleStartRef.current = {
+    const rect = stage.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    rotateStartRef.current = {
       pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      startScale: mediaTransform.scale
+      centerX,
+      centerY,
+      startAngle: angleFromCenter(event.clientX, event.clientY, centerX, centerY),
+      startRotation: mediaTransform.rotation
     };
-    stageRef.current?.setPointerCapture(event.pointerId);
+    stage.setPointerCapture(event.pointerId);
     setIsPanning(true);
   };
 
@@ -309,7 +352,7 @@ export function PreviewCanvas({
           {background && isPrimary && (
             <div className="preview-transform-box">
               {['nw', 'ne', 'sw', 'se'].map((handle) => (
-                <button key={handle} className={`transform-handle ${handle}`} type="button" title="Drag to scale media" onPointerDown={beginMediaScale} />
+                <button key={handle} className={`transform-handle rotate-handle ${handle}`} type="button" title="Drag to rotate media. Ctrl+wheel scales." onPointerDown={beginMediaRotate} />
               ))}
             </div>
           )}

@@ -1,5 +1,5 @@
 import type { AspectRatioKey, ProjectConfig, TeaserSettings, TimelineTrackId, TimelineTrackState } from '../../shared/types';
-import { DEFAULT_MEDIA_TRANSFORMS, DEFAULT_PROJECT, DEFAULT_TEXT_TRANSFORMS, DEFAULT_TIMELINE, DEFAULT_TRACKS } from '../../shared/types';
+import { DEFAULT_MEDIA_MOTION, DEFAULT_MEDIA_TRANSFORMS, DEFAULT_PROJECT, DEFAULT_TEXT_TRANSFORMS, DEFAULT_TIMELINE, DEFAULT_TRACKS } from '../../shared/types';
 
 const LEGACY_DEMO_TITLE = 'SPRING_CACHE_01';
 const LEGACY_DEMO_SUBTITLE = 'midnight_uplink_alpha';
@@ -14,6 +14,24 @@ function mergeMediaTransforms(saved?: Partial<TeaserSettings['mediaTransforms']>
       ...saved?.[aspect]
     }
   }), {} as TeaserSettings['mediaTransforms']);
+}
+
+function mergeMediaMotion(saved?: Partial<TeaserSettings['mediaMotion']>): TeaserSettings['mediaMotion'] {
+  return ASPECT_KEYS.reduce((next, aspect) => ({
+    ...next,
+    [aspect]: {
+      ...DEFAULT_MEDIA_MOTION[aspect],
+      ...saved?.[aspect],
+      start: {
+        ...DEFAULT_MEDIA_MOTION[aspect].start,
+        ...saved?.[aspect]?.start
+      },
+      end: {
+        ...DEFAULT_MEDIA_MOTION[aspect].end,
+        ...saved?.[aspect]?.end
+      }
+    }
+  }), {} as TeaserSettings['mediaMotion']);
 }
 
 function mergeTextTransforms(saved?: Partial<TeaserSettings['textTransforms']>): TeaserSettings['textTransforms'] {
@@ -51,6 +69,7 @@ function mergeSettings(saved?: ProjectConfig['settings']): ProjectConfig['settin
     fadeOutDuration: saved?.fadeOutDuration ?? legacyFadeDuration,
     fadeDurationsLinked: saved?.fadeDurationsLinked ?? true,
     mediaTransforms: mergeMediaTransforms(saved?.mediaTransforms),
+    mediaMotion: mergeMediaMotion(saved?.mediaMotion),
     textTransforms: mergeTextTransforms(saved?.textTransforms)
   };
 }

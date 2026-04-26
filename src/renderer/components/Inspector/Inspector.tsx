@@ -6,14 +6,17 @@ import type {
   FfmpegStatus,
   MatchCandidate,
   MediaAsset,
+  MediaMotionKeyframes,
   MediaScanResult,
+  MediaTransform,
+  MotionEasing,
   ProjectConfig,
   TeaserSettings,
   TimelineClip,
   TimelineExportMarker,
   TimelineSelection
 } from '../../../shared/types';
-import { ASPECT_RATIOS, DEFAULT_MEDIA_TRANSFORMS, DEFAULT_TEXT_TRANSFORMS } from '../../../shared/types';
+import { ASPECT_RATIOS, DEFAULT_MEDIA_MOTION, DEFAULT_MEDIA_TRANSFORMS, DEFAULT_TEXT_TRANSFORMS } from '../../../shared/types';
 import { defaultOutputHint, EXPORT_TARGETS } from '../../lib/ffmpegCommands';
 import { formatTime, parseNumber } from '../../lib/timecode';
 import { ExportQueue } from '../ExportQueue/ExportQueue';
@@ -160,6 +163,7 @@ export function Inspector({
     : undefined;
   const selectedExportRange = project.timeline.selected?.type === 'export-range';
   const activeMediaTransform = settings.mediaTransforms?.[settings.primaryAspect] ?? DEFAULT_MEDIA_TRANSFORMS[settings.primaryAspect];
+  const activeMediaMotion = settings.mediaMotion?.[settings.primaryAspect] ?? DEFAULT_MEDIA_MOTION[settings.primaryAspect];
   const activeTextTransform = settings.textTransforms?.[settings.primaryAspect] ?? DEFAULT_TEXT_TRANSFORMS[settings.primaryAspect];
   const teaserDuration = Math.max(1, settings.endOffset - settings.startOffset || settings.teaserDuration);
   const maxFadeDuration = Math.max(0, teaserDuration / 2);
@@ -183,6 +187,38 @@ export function Inspector({
         }
       }
     });
+  };
+  const updateActiveMediaMotion = (patch: Partial<MediaMotionKeyframes>): void => {
+    const mediaMotion = {
+      ...DEFAULT_MEDIA_MOTION,
+      ...settings.mediaMotion
+    };
+
+    onSettingsChange({
+      mediaMotion: {
+        ...mediaMotion,
+        [settings.primaryAspect]: {
+          ...activeMediaMotion,
+          ...patch,
+          start: {
+            ...activeMediaMotion.start,
+            ...patch.start
+          },
+          end: {
+            ...activeMediaMotion.end,
+            ...patch.end
+          }
+        }
+      }
+    });
+  };
+  const updateMotionKeyframe = (keyframe: 'start' | 'end', patch: Partial<MediaTransform>): void => {
+    updateActiveMediaMotion({
+      [keyframe]: {
+        ...activeMediaMotion[keyframe],
+        ...patch
+      }
+    } as Partial<MediaMotionKeyframes>);
   };
   const updateActiveTextTransform = (layer: 'title' | 'subtitle', patch: Partial<typeof activeTextTransform.title>): void => {
     const textTransforms = {
@@ -547,7 +583,7 @@ export function Inspector({
                 <option value="hybrid">Hybrid still + motion overlays</option>
               </select>
             </Field>
-            <div className="notice">Media framing applies to the active aspect ratio. Drag the preview to reposition; Ctrl+wheel scales it.</div>
+            <div className="notice">Media framing applies to the active aspect ratio. Drag the preview to reposition; Ctrl+wheel scales it; corner handles rotate it.</div>
             <Field label="Media fit">
               <select value={activeMediaTransform.fitMode} onChange={(event) => updateActiveMediaTransform({ fitMode: event.target.value as typeof activeMediaTransform.fitMode })}>
                 <option value="fit">Fit crop</option>
@@ -565,11 +601,79 @@ export function Inspector({
               <input type="range" min="1" max="2.5" step="0.01" value={activeMediaTransform.scale} onChange={(event) => updateActiveMediaTransform({ scale: Number(event.target.value) })} />
             </Field>
             <Field label="Media rotation">
-              <input type="range" min="-45" max="45" step="0.5" value={activeMediaTransform.rotation} onChange={(event) => updateActiveMediaTransform({ rotation: Number(event.target.value) })} />
+              <input type="range" min="-180" max="180" step="0.5" value={activeMediaTransform.rotation} onChange={(event) => updateActiveMediaTransform({ rotation: Number(event.target.value) })} />
             </Field>
-            <button className="secondary-button" type="button" onClick={() => updateActiveMediaTransform(DEFAULT_MEDIA_TRANSFORMS[settings.primaryAspect])}>
-              Reset active framing
-            </button>
+            <div className="inline-actions">
+              <button className="secondary-button" type="button" onClick={() => updateActiveMediaTransform({ positionX: 50, positionY: 50 })}>
+                Reset position
+              </button>
+              <button className="secondary-button" type="button" onClick={() => updateActiveMediaTransform({ scale: 1 })}>
+                Reset scale
+              </button>
+            </div>
+            <div className="inline-actions">
+              <button className="secondary-button" type="button" onClick={() => updateActiveMediaTransform({ rotation: 0 })}>
+                Reset rotation
+              </button>
+              <button className="secondary-button" type="button" onClick={() => updateActiveMediaTransform(DEFAULT_MEDIA_TRANSFORMS[settings.primaryAspect])}>
+                Reset framing
+              </button>
+            </div>
+            <Field label="Motion keyframes">
+              <Switch checked={activeMediaMotion.enabled} onChange={(enabled) => updateActiveMediaMotion({ enabled })} />
+            </Field>
+            <Field label="Motion easing">
+              <select value={activeMediaMotion.easing} onChange={(event) => updateActiveMediaMotion({ easing: event.target.value as MotionEasing })}>
+                <option value="linear">Linear</option>
+                <option value="ease-in">Ease In</option>
+                <option value="ease-out">Ease Out</option>
+                <option value="ease-in-out">Ease In/Out</option>
+                <option value="soft-drift">Soft Drift</option>
+              </select>
+            </Field>
+            {activeMediaMotion.enabled && (
+              <>
+                <div className="inline-actions">
+                  <button className="secondary-button" type="button" onClick={() => updateActiveMediaMotion({ start: { ...activeMediaTransform } })}>
+                    Set start from current
+                  </button>
+                  <button className="secondary-button" type="button" onClick={() => updateActiveMediaMotion({ end: { ...activeMediaTransform } })}>
+                    Set end from current
+                  </button>
+                </div>
+                <div className="inline-actions">
+                  <button className="secondary-button" type="button" onClick={() => updateActiveMediaMotion(DEFAULT_MEDIA_MOTION[settings.primaryAspect])}>
+                    Reset motion
+                  </button>
+                </div>
+                <div className="mini-heading">Motion Start</div>
+                <Field label="Start X">
+                  <input type="range" min="0" max="100" step="0.5" value={activeMediaMotion.start.positionX} onChange={(event) => updateMotionKeyframe('start', { positionX: Number(event.target.value) })} />
+                </Field>
+                <Field label="Start Y">
+                  <input type="range" min="0" max="100" step="0.5" value={activeMediaMotion.start.positionY} onChange={(event) => updateMotionKeyframe('start', { positionY: Number(event.target.value) })} />
+                </Field>
+                <Field label="Start scale">
+                  <input type="range" min="1" max="2.5" step="0.01" value={activeMediaMotion.start.scale} onChange={(event) => updateMotionKeyframe('start', { scale: Number(event.target.value) })} />
+                </Field>
+                <Field label="Start rotate">
+                  <input type="range" min="-180" max="180" step="0.5" value={activeMediaMotion.start.rotation} onChange={(event) => updateMotionKeyframe('start', { rotation: Number(event.target.value) })} />
+                </Field>
+                <div className="mini-heading">Motion End</div>
+                <Field label="End X">
+                  <input type="range" min="0" max="100" step="0.5" value={activeMediaMotion.end.positionX} onChange={(event) => updateMotionKeyframe('end', { positionX: Number(event.target.value) })} />
+                </Field>
+                <Field label="End Y">
+                  <input type="range" min="0" max="100" step="0.5" value={activeMediaMotion.end.positionY} onChange={(event) => updateMotionKeyframe('end', { positionY: Number(event.target.value) })} />
+                </Field>
+                <Field label="End scale">
+                  <input type="range" min="1" max="2.5" step="0.01" value={activeMediaMotion.end.scale} onChange={(event) => updateMotionKeyframe('end', { scale: Number(event.target.value) })} />
+                </Field>
+                <Field label="End rotate">
+                  <input type="range" min="-180" max="180" step="0.5" value={activeMediaMotion.end.rotation} onChange={(event) => updateMotionKeyframe('end', { rotation: Number(event.target.value) })} />
+                </Field>
+              </>
+            )}
             <EffectControl label="Particles" value={settings.effects.particles} onChange={(particles) => onSettingsChange({ effects: { ...settings.effects, particles } })} />
             <EffectControl label="Scanlines" value={settings.effects.scanlines} onChange={(scanlines) => onSettingsChange({ effects: { ...settings.effects, scanlines } })} />
             <EffectControl label="Light sweep" value={settings.effects.lightSweep} onChange={(lightSweep) => onSettingsChange({ effects: { ...settings.effects, lightSweep } })} />
