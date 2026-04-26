@@ -15,6 +15,7 @@ import type {
   ExportProgressEvent,
   FfmpegStatus,
   MediaAsset,
+  MediaTransform,
   MediaScanResult,
   ProjectConfig,
   TeaserSettings,
@@ -23,7 +24,7 @@ import type {
   TimelineSelection,
   TimelineState
 } from '../shared/types';
-import { ASPECT_RATIOS, DEFAULT_PROJECT } from '../shared/types';
+import { ASPECT_RATIOS, DEFAULT_MEDIA_TRANSFORMS, DEFAULT_PROJECT } from '../shared/types';
 
 function findAsset(scan: MediaScanResult | null, path?: string): MediaAsset | undefined {
   if (!scan || !path) return undefined;
@@ -36,7 +37,7 @@ function latestEvents(events: ExportProgressEvent[]): ExportProgressEvent[] {
   return Array.from(map.values()).slice(-9).reverse();
 }
 
-export function App(): JSX.Element {
+export function App() {
   const [scan, setScan] = useState<MediaScanResult | null>(null);
   const [project, setProject] = useState<ProjectConfig>(DEFAULT_PROJECT);
   const [appSettings, setAppSettings] = useState<AppSettings>({});
@@ -88,6 +89,31 @@ export function App(): JSX.Element {
       timeline,
       updatedAt: new Date().toISOString()
     }));
+  }, []);
+
+  const updateMediaTransform = useCallback((aspect: AspectRatioKey, patch: Partial<MediaTransform>) => {
+    setProject((previous) => {
+      const mediaTransforms = {
+        ...DEFAULT_MEDIA_TRANSFORMS,
+        ...previous.settings.mediaTransforms
+      };
+      const currentTransform = mediaTransforms[aspect] ?? DEFAULT_MEDIA_TRANSFORMS[aspect];
+
+      return {
+        ...previous,
+        settings: {
+          ...previous.settings,
+          mediaTransforms: {
+            ...mediaTransforms,
+            [aspect]: {
+              ...currentTransform,
+              ...patch
+            }
+          }
+        },
+        updatedAt: new Date().toISOString()
+      };
+    });
   }, []);
 
   const selectTimelineItem = useCallback((selected?: TimelineSelection) => {
@@ -264,10 +290,12 @@ export function App(): JSX.Element {
     setCurrentTime(0);
     setProject((previous) => {
       const savedPairing = previous.pairings[asset.path];
-      const savedCover = findAsset(scan, savedPairing?.coverArtPath);
-      const savedVideo = findAsset(scan, savedPairing?.videoCoverPath);
-      const cover = savedCover ?? bestAssetMatch(asset, scan.groups.coverArt);
-      const video = savedVideo ?? bestAssetMatch(asset, scan.groups.videoCoverArt);
+      const cover = savedPairing
+        ? findAsset(scan, savedPairing.coverArtPath)
+        : bestAssetMatch(asset, scan.groups.coverArt);
+      const video = savedPairing
+        ? findAsset(scan, savedPairing.videoCoverPath)
+        : bestAssetMatch(asset, scan.groups.videoCoverArt);
       const nextProject: ProjectConfig = {
         ...previous,
         selectedSongPath: asset.path,
@@ -286,12 +314,14 @@ export function App(): JSX.Element {
     });
   }, [scan]);
 
-  const setCover = useCallback((asset: MediaAsset) => {
-    setProject((previous) => updatePairing({ ...previous, coverArtPath: asset.path, updatedAt: new Date().toISOString() }, asset.path, previous.videoCoverPath));
+  const setCover = useCallback((asset?: MediaAsset) => {
+    const coverArtPath = asset?.path;
+    setProject((previous) => updatePairing({ ...previous, coverArtPath, updatedAt: new Date().toISOString() }, coverArtPath, previous.videoCoverPath));
   }, []);
 
-  const setVideo = useCallback((asset: MediaAsset) => {
-    setProject((previous) => updatePairing({ ...previous, videoCoverPath: asset.path, updatedAt: new Date().toISOString() }, previous.coverArtPath, asset.path));
+  const setVideo = useCallback((asset?: MediaAsset) => {
+    const videoCoverPath = asset?.path;
+    setProject((previous) => updatePairing({ ...previous, videoCoverPath, updatedAt: new Date().toISOString() }, previous.coverArtPath, videoCoverPath));
   }, []);
 
   const handleDropAsset = (asset: MediaAsset): void => {
@@ -452,6 +482,7 @@ export function App(): JSX.Element {
                 isDemo={isDemo}
                 onSetPrimary={() => setPrimaryAspect(preset.key)}
                 onDropAsset={handleDropAsset}
+                onMediaTransformChange={updateMediaTransform}
               />
             ))}
           </div>

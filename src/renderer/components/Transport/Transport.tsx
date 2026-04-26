@@ -24,7 +24,7 @@ export function Transport({
   onJumpEnd,
   onLoopChange,
   onVolumeChange
-}: TransportProps): JSX.Element {
+}: TransportProps) {
   return (
     <div className="transport">
       <button className="icon-button" type="button" title="Jump to start" onClick={onJumpStart} disabled={disabled}>

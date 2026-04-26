@@ -82,6 +82,12 @@ export interface EffectSettings {
   intensity: number;
 }
 
+export interface MediaTransform {
+  positionX: number;
+  positionY: number;
+  scale: number;
+}
+
 export interface TeaserSettings {
   teaserDuration: number;
   startOffset: number;
@@ -98,6 +104,7 @@ export interface TeaserSettings {
   glowAmount: number;
   letterSpacing: number;
   textAnimation: TextAnimationPreset;
+  mediaTransforms: Record<AspectRatioKey, MediaTransform>;
   backgroundType: BackgroundType;
   effects: {
     particles: EffectSettings;
@@ -225,6 +232,12 @@ export const ASPECT_RATIOS: AspectRatioPreset[] = [
   { key: '16x9', label: 'Landscape 16:9', width: 1920, height: 1080 }
 ];
 
+export const DEFAULT_MEDIA_TRANSFORMS: Record<AspectRatioKey, MediaTransform> = {
+  '9x16': { positionX: 50, positionY: 50, scale: 1 },
+  '1x1': { positionX: 50, positionY: 50, scale: 1 },
+  '16x9': { positionX: 50, positionY: 50, scale: 1 }
+};
+
 export const DEFAULT_SETTINGS: TeaserSettings = {
   teaserDuration: 15,
   startOffset: 0,
@@ -241,6 +254,7 @@ export const DEFAULT_SETTINGS: TeaserSettings = {
   glowAmount: 32,
   letterSpacing: 0,
   textAnimation: 'glitch-slide-up',
+  mediaTransforms: DEFAULT_MEDIA_TRANSFORMS,
   backgroundType: 'video-cover',
   effects: {
     particles: { enabled: true, intensity: 0.35 },

@@ -2,7 +2,7 @@ import { app, dialog, ipcMain } from 'electron';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { AppSettings, ProjectConfig } from '../../shared/types';
-import { DEFAULT_PROJECT, DEFAULT_TIMELINE } from '../../shared/types';
+import { DEFAULT_MEDIA_TRANSFORMS, DEFAULT_PROJECT, DEFAULT_TIMELINE } from '../../shared/types';
 import { scanProjectFolder } from './mediaScan';
 
 const PROJECT_DIR = '.teaserforge';
@@ -60,7 +60,11 @@ export function registerFilesystemIpc(): void {
       rootPath,
       settings: {
         ...DEFAULT_PROJECT.settings,
-        ...saved?.settings
+        ...saved?.settings,
+        mediaTransforms: {
+          ...DEFAULT_MEDIA_TRANSFORMS,
+          ...saved?.settings?.mediaTransforms
+        }
       },
       timeline: saved?.timeline ?? DEFAULT_TIMELINE,
       pairings: saved?.pairings ?? {}

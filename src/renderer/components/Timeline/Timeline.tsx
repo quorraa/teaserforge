@@ -1,7 +1,8 @@
 import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.esm.js';
 import WaveSurfer from 'wavesurfer.js';
+import { ZoomIn, ZoomOut } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent } from 'react';
+import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react';
 import type {
   AspectRatioKey,
   MediaAsset,
@@ -51,6 +52,9 @@ interface DragState {
 const PRESET_DURATIONS = [5, 10, 15, 20, 30, 45];
 const MIN_ITEM_DURATION = 0.25;
 const MIN_TIMELINE_SPAN = 45;
+const MIN_TIMELINE_ZOOM = 1;
+const MAX_TIMELINE_ZOOM = 4;
+const TIMELINE_ZOOM_STEP = 0.25;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -72,6 +76,10 @@ function aspectChipClass(aspect: AspectRatioKey): string {
   if (aspect === '9x16') return 'portrait';
   if (aspect === '1x1') return 'square';
   return 'landscape';
+}
+
+function snapZoom(value: number): number {
+  return clamp(Math.round(value * 4) / 4, MIN_TIMELINE_ZOOM, MAX_TIMELINE_ZOOM);
 }
 
 function clipClass(clip: TimelineClip): string {
@@ -96,7 +104,7 @@ export function Timeline({
   onTimelineMarkerChange,
   onExportMarker,
   onPlaybackChange
-}: TimelineProps): JSX.Element {
+}: TimelineProps) {
   const waveformRef = useRef<HTMLDivElement | null>(null);
   const waveSurferRef = useRef<WaveSurfer | null>(null);
   const regionRef = useRef<any>(null);
@@ -105,6 +113,7 @@ export function Timeline({
   const [volume, setVolume] = useState(0.86);
   const [audioDuration, setAudioDuration] = useState(0);
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const [timelineZoom, setTimelineZoom] = useState(1);
   const settings = project.settings;
   const settingsRef = useRef(settings);
   const selected = project.timeline.selected;
@@ -335,6 +344,20 @@ export function Timeline({
     });
   };
 
+  const setZoom = (zoom: number): void => {
+    setTimelineZoom(snapZoom(zoom));
+  };
+
+  const adjustZoom = (delta: number): void => {
+    setTimelineZoom((currentZoom) => snapZoom(currentZoom + delta));
+  };
+
+  const handleTimelineWheel = (event: ReactWheelEvent<HTMLDivElement>): void => {
+    if (!event.ctrlKey && !event.metaKey) return;
+    event.preventDefault();
+    adjustZoom(event.deltaY < 0 ? TIMELINE_ZOOM_STEP : -TIMELINE_ZOOM_STEP);
+  };
+
   const beginDrag = (
     event: ReactPointerEvent<HTMLElement>,
     kind: DragKind,
@@ -400,7 +423,7 @@ export function Timeline({
     return clip.label;
   };
 
-  const renderClip = (clip: TimelineClip): JSX.Element => (
+  const renderClip = (clip: TimelineClip) => (
     <div
       key={clip.id}
       className={`clip editable-clip ${clipClass(clip)} ${selected?.type === 'clip' && selected.id === clip.id ? 'selected' : ''} ${clip.enabled ? '' : 'disabled'}`}
@@ -426,7 +449,7 @@ export function Timeline({
     </div>
   );
 
-  const renderTrack = (track: TimelineTrackId): JSX.Element[] => project.timeline.clips.filter((clip) => clip.track === track).map(renderClip);
+  const renderTrack = (track: TimelineTrackId) => project.timeline.clips.filter((clip) => clip.track === track).map(renderClip);
 
   const ticks = Array.from({ length: Math.max(2, Math.ceil(timelineSpan / 5) + 1) }, (_, index) => index * 5);
   const progress = clamp((settings.startOffset + currentTime) / timelineSpan, 0, 1);
@@ -468,6 +491,24 @@ export function Timeline({
         <div className="timeline-selection-readout">
           {selected ? 'Selection active' : 'Click clips or export markers to edit timing'}
         </div>
+        <div className="timeline-zoom-controls" aria-label="Timeline zoom controls">
+          <button className="icon-button" type="button" title="Zoom out timeline" onClick={() => adjustZoom(-TIMELINE_ZOOM_STEP)} disabled={timelineZoom <= MIN_TIMELINE_ZOOM}>
+            <ZoomOut size={14} />
+          </button>
+          <input
+            aria-label="Timeline zoom"
+            type="range"
+            min={MIN_TIMELINE_ZOOM}
+            max={MAX_TIMELINE_ZOOM}
+            step={TIMELINE_ZOOM_STEP}
+            value={timelineZoom}
+            onChange={(event) => setZoom(Number(event.target.value))}
+          />
+          <span>{Math.round(timelineZoom * 100)}%</span>
+          <button className="icon-button" type="button" title="Zoom in timeline" onClick={() => adjustZoom(TIMELINE_ZOOM_STEP)} disabled={timelineZoom >= MAX_TIMELINE_ZOOM}>
+            <ZoomIn size={14} />
+          </button>
+        </div>
         <div className="preset-row">
           {PRESET_DURATIONS.map((duration) => (
             <button key={duration} className={Math.round(teaserDuration) === duration ? 'active' : ''} type="button" onClick={() => setPresetDuration(duration)}>
@@ -478,92 +519,102 @@ export function Timeline({
         </div>
       </div>
 
-      <div className="timeline-ruler">
-        {ticks.map((tick) => (
-          <span key={tick} style={{ left: `${Math.min(100, (tick / timelineSpan) * 100)}%` }}>
-            {formatTime(tick)}
-          </span>
-        ))}
-      </div>
-
-      <div className="timeline-grid" onClick={() => onTimelineSelectionChange(undefined)}>
-        <div className="track-label">Markers</div>
-        <div className="track-lane marker-lane">
-          <span style={{ left: '8%' }}>Intro</span>
-          <span style={{ left: '45%' }}>Main Section</span>
-          <span style={{ left: '84%' }}>Outro</span>
+      <div className="timeline-editor" onClick={() => onTimelineSelectionChange(undefined)}>
+        <div className="timeline-ruler-label" />
+        <div className="timeline-labels">
+          <div className="track-label">Markers</div>
+          <div className="track-label">Audio Waveform</div>
+          <div className="track-label">Text</div>
+          <div className="track-label">Cover Art</div>
+          <div className="track-label">Video Cover</div>
+          <div className="track-label">Effects</div>
+          <div className="track-label">Export Range</div>
         </div>
 
-        <div className="track-label">Audio Waveform</div>
-        <div className="track-lane waveform-lane">
-          <div className="playhead" style={{ left: `${progress * 100}%` }} />
-          {isDemo || !selectedSong ? (
-            <div className="synthetic-wave">
-              {waveformBars.map((height, index) => <span key={index} style={{ height: `${height * 100}%` }} />)}
-            </div>
-          ) : (
-            <div className="wavesurfer-host" ref={waveformRef} />
-          )}
-          <div className="audio-seek-layer" title="Click or drag to scrub audio" onPointerDown={beginAudioSeek} />
-        </div>
-
-        <div className="track-label">Text</div>
-        <div className="track-lane clip-lane">{renderTrack('text')}</div>
-
-        <div className="track-label">Cover Art</div>
-        <div className="track-lane clip-lane thumbnails">{renderTrack('cover')}</div>
-
-        <div className="track-label">Video Cover</div>
-        <div className="track-lane clip-lane thumbnails">{renderTrack('video')}</div>
-
-        <div className="track-label">Effects</div>
-        <div className="track-lane effects-lane">{renderTrack('effects')}</div>
-
-        <div className="track-label">Export Range</div>
-        <div className="track-lane export-marker-lane">
-          <div
-            className={`export-range ${selected?.type === 'export-range' ? 'selected' : ''}`}
-            style={{ left: timeToLeft(settings.startOffset, timelineSpan), width: timeToWidth(settings.startOffset, settings.endOffset, timelineSpan) }}
-            role="button"
-            tabIndex={0}
-            title={`Export range: ${formatTime(settings.startOffset)} - ${formatTime(settings.endOffset)}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              selectExportRange();
-            }}
-            onPointerDown={(event) => beginDrag(event, 'export-range', 'export-range', 'move', settings.startOffset, settings.endOffset)}
-          >
-            <span
-              className="clip-handle start"
-              onPointerDown={(event) => beginDrag(event, 'export-range', 'export-range', 'start', settings.startOffset, settings.endOffset)}
-            />
-            <span className="export-range-label">{formatTime(settings.startOffset)} - {formatTime(settings.endOffset)}</span>
-            <div className="export-range-chips">
-              {(['9x16', '1x1', '16x9'] as AspectRatioKey[]).map((aspect) => (
-                <button
-                  key={aspect}
-                  className={`export-chip ${aspectChipClass(aspect)} ${settings.primaryAspect === aspect ? 'active' : ''}`}
-                  type="button"
-                  title={`Select ${aspect}. Double-click to export.`}
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onSettingsChange({ primaryAspect: aspect });
-                    selectExportRange();
-                  }}
-                  onDoubleClick={(event) => {
-                    event.stopPropagation();
-                    if (!isDemo) onExportMarker(aspect);
-                  }}
-                >
-                  {aspect}
-                </button>
+        <div className="timeline-scroll" onWheel={handleTimelineWheel}>
+          <div className="timeline-content" style={{ width: `${timelineZoom * 100}%` }}>
+            <div className="timeline-ruler">
+              {ticks.map((tick) => (
+                <span key={tick} style={{ left: `${Math.min(100, (tick / timelineSpan) * 100)}%` }}>
+                  {formatTime(tick)}
+                </span>
               ))}
             </div>
-            <span
-              className="clip-handle end"
-              onPointerDown={(event) => beginDrag(event, 'export-range', 'export-range', 'end', settings.startOffset, settings.endOffset)}
-            />
+
+            <div className="timeline-lanes">
+              <div className="track-lane marker-lane">
+                <span style={{ left: '8%' }}>Intro</span>
+                <span style={{ left: '45%' }}>Main Section</span>
+                <span style={{ left: '84%' }}>Outro</span>
+              </div>
+
+              <div className="track-lane waveform-lane">
+                <div className="playhead" style={{ left: `${progress * 100}%` }} />
+                {isDemo || !selectedSong ? (
+                  <div className="synthetic-wave">
+                    {waveformBars.map((height, index) => <span key={index} style={{ height: `${height * 100}%` }} />)}
+                  </div>
+                ) : (
+                  <div className="wavesurfer-host" ref={waveformRef} />
+                )}
+                <div className="audio-seek-layer" title="Click or drag to scrub audio" onPointerDown={beginAudioSeek} />
+              </div>
+
+              <div className="track-lane clip-lane">{renderTrack('text')}</div>
+
+              <div className="track-lane clip-lane thumbnails">{renderTrack('cover')}</div>
+
+              <div className="track-lane clip-lane thumbnails">{renderTrack('video')}</div>
+
+              <div className="track-lane effects-lane">{renderTrack('effects')}</div>
+
+              <div className="track-lane export-marker-lane">
+                <div
+                  className={`export-range ${selected?.type === 'export-range' ? 'selected' : ''}`}
+                  style={{ left: timeToLeft(settings.startOffset, timelineSpan), width: timeToWidth(settings.startOffset, settings.endOffset, timelineSpan) }}
+                  role="button"
+                  tabIndex={0}
+                  title={`Export range: ${formatTime(settings.startOffset)} - ${formatTime(settings.endOffset)}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    selectExportRange();
+                  }}
+                  onPointerDown={(event) => beginDrag(event, 'export-range', 'export-range', 'move', settings.startOffset, settings.endOffset)}
+                >
+                  <span
+                    className="clip-handle start"
+                    onPointerDown={(event) => beginDrag(event, 'export-range', 'export-range', 'start', settings.startOffset, settings.endOffset)}
+                  />
+                  <span className="export-range-label">{formatTime(settings.startOffset)} - {formatTime(settings.endOffset)}</span>
+                  <div className="export-range-chips">
+                    {(['9x16', '1x1', '16x9'] as AspectRatioKey[]).map((aspect) => (
+                      <button
+                        key={aspect}
+                        className={`export-chip ${aspectChipClass(aspect)} ${settings.primaryAspect === aspect ? 'active' : ''}`}
+                        type="button"
+                        title={`Select ${aspect}. Double-click to export.`}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onSettingsChange({ primaryAspect: aspect });
+                          selectExportRange();
+                        }}
+                        onDoubleClick={(event) => {
+                          event.stopPropagation();
+                          if (!isDemo) onExportMarker(aspect);
+                        }}
+                      >
+                        {aspect}
+                      </button>
+                    ))}
+                  </div>
+                  <span
+                    className="clip-handle end"
+                    onPointerDown={(event) => beginDrag(event, 'export-range', 'export-range', 'end', settings.startOffset, settings.endOffset)}
+                  />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

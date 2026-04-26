@@ -4,7 +4,7 @@ interface ExportQueueProps {
   events: ExportProgressEvent[];
 }
 
-export function ExportQueue({ events }: ExportQueueProps): JSX.Element {
+export function ExportQueue({ events }: ExportQueueProps) {
   return (
     <div className="export-queue">
       {events.length === 0 ? (

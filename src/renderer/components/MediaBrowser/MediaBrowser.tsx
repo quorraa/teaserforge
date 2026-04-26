@@ -32,7 +32,15 @@ function filterTree(node: FileTreeNode, search: string): FileTreeNode | null {
   return null;
 }
 
-function AssetThumb({ asset, isDemo }: { asset: MediaAsset; isDemo: boolean }): JSX.Element {
+function folderOnlyTree(node: FileTreeNode): FileTreeNode | null {
+  if (node.kind !== 'folder') return null;
+  return {
+    ...node,
+    children: node.children?.map(folderOnlyTree).filter(Boolean) as FileTreeNode[] | undefined
+  };
+}
+
+function AssetThumb({ asset, isDemo }: { asset: MediaAsset; isDemo: boolean }) {
   const [failed, setFailed] = useState(false);
   const url = teaserForgeApi.mediaUrl(asset.path);
 
@@ -60,7 +68,7 @@ function AssetRow({
   isDemo: boolean;
   selected: boolean;
   onClick: (asset: MediaAsset) => void;
-}): JSX.Element {
+}) {
   return (
     <button
       type="button"
@@ -94,7 +102,7 @@ function TreeNode({
   onSelectCover: (asset: MediaAsset) => void;
   onSelectVideo: (asset: MediaAsset) => void;
   level?: number;
-}): JSX.Element {
+}) {
   const [open, setOpen] = useState(level < 2);
   const asset = assetsByPath.get(node.path);
   const selected = [project.selectedSongPath, project.coverArtPath, project.videoCoverPath].includes(node.path);
@@ -166,7 +174,7 @@ function Group({
   isDemo: boolean;
   selectedPaths: Array<string | undefined>;
   onClick: (asset: MediaAsset) => void;
-}): JSX.Element {
+}) {
   return (
     <section className="asset-group">
       <div className="group-heading">
@@ -197,7 +205,7 @@ export function MediaBrowser({
   onSelectSong,
   onSelectCover,
   onSelectVideo
-}: MediaBrowserProps): JSX.Element {
+}: MediaBrowserProps) {
   const assetsByPath = useMemo(() => {
     const map = new Map<string, MediaAsset>();
     if (!scan) return map;
@@ -206,6 +214,7 @@ export function MediaBrowser({
   }, [scan]);
 
   const filteredTree = useMemo(() => (scan ? filterTree(scan.tree, search) : null), [scan, search]);
+  const folderTree = useMemo(() => (filteredTree ? folderOnlyTree(filteredTree) : null), [filteredTree]);
   const filtered = (assets: MediaAsset[]): MediaAsset[] => assets.filter((asset) => !search.trim() || matchesSearch(asset.name, search) || matchesSearch(asset.relativePath, search));
   const selectedPaths = [project.selectedSongPath, project.coverArtPath, project.videoCoverPath];
 
@@ -253,9 +262,9 @@ export function MediaBrowser({
               <span>Folders</span>
               <small>{isDemo ? 'demo' : 'live'}</small>
             </div>
-            {filteredTree && (
+            {folderTree && (
               <TreeNode
-                node={filteredTree}
+                node={folderTree}
                 assetsByPath={assetsByPath}
                 project={project}
                 isDemo={isDemo}

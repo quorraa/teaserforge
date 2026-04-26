@@ -1,5 +1,5 @@
 import type { ProjectConfig } from '../../shared/types';
-import { DEFAULT_PROJECT, DEFAULT_TIMELINE } from '../../shared/types';
+import { DEFAULT_MEDIA_TRANSFORMS, DEFAULT_PROJECT, DEFAULT_TIMELINE } from '../../shared/types';
 
 const LEGACY_DEMO_TITLE = 'SPRING_CACHE_01';
 const LEGACY_DEMO_SUBTITLE = 'midnight_uplink_alpha';
@@ -36,7 +36,11 @@ export function createProjectForRoot(rootPath: string, rootName: string, saved?:
     pairings: saved?.pairings ?? {},
     settings: {
       ...DEFAULT_PROJECT.settings,
-      ...saved?.settings
+      ...saved?.settings,
+      mediaTransforms: {
+        ...DEFAULT_MEDIA_TRANSFORMS,
+        ...saved?.settings?.mediaTransforms
+      }
     },
     timeline: normalizeTimeline(saved?.timeline),
     updatedAt: saved?.updatedAt ?? new Date().toISOString()

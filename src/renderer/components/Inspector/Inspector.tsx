@@ -13,7 +13,7 @@ import type {
   TimelineExportMarker,
   TimelineSelection
 } from '../../../shared/types';
-import { ASPECT_RATIOS } from '../../../shared/types';
+import { ASPECT_RATIOS, DEFAULT_MEDIA_TRANSFORMS } from '../../../shared/types';
 import { defaultOutputHint, EXPORT_TARGETS } from '../../lib/ffmpegCommands';
 import { formatTime, parseNumber } from '../../lib/timecode';
 import { ExportQueue } from '../ExportQueue/ExportQueue';
@@ -36,8 +36,8 @@ interface InspectorProps {
   onTimelineSelectionChange: (selection?: TimelineSelection) => void;
   onTimelineClipChange: (clipId: string, patch: Partial<TimelineClip>) => void;
   onTimelineMarkerChange: (markerId: string, patch: Partial<TimelineExportMarker>) => void;
-  onSetCover: (asset: MediaAsset) => void;
-  onSetVideo: (asset: MediaAsset) => void;
+  onSetCover: (asset?: MediaAsset) => void;
+  onSetVideo: (asset?: MediaAsset) => void;
   onSelectOutputFolder: () => void;
   onExportTargets: (targetKeys: string[]) => void;
   onAppSettingsChange: (settings: AppSettings) => void;
@@ -45,7 +45,7 @@ interface InspectorProps {
   onPlayRegion: () => void;
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="field-row">
       <span>{label}</span>
@@ -54,7 +54,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function Switch({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }): JSX.Element {
+function Switch({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) {
   return (
     <button className={`switch ${checked ? 'on' : ''}`} type="button" onClick={() => onChange(!checked)}>
       <span />
@@ -70,7 +70,7 @@ function MatchList({
   title: string;
   candidates: MatchCandidate[];
   onPick: (asset: MediaAsset) => void;
-}): JSX.Element {
+}) {
   return (
     <div className="match-list">
       <div className="mini-heading">{title}</div>
@@ -98,7 +98,7 @@ function EffectControl({
   label: string;
   value: { enabled: boolean; intensity: number };
   onChange: (value: { enabled: boolean; intensity: number }) => void;
-}): JSX.Element {
+}) {
   return (
     <div className="effect-control">
       <div>
@@ -140,7 +140,7 @@ export function Inspector({
   onAppSettingsChange,
   onCheckFfmpeg,
   onPlayRegion
-}: InspectorProps): JSX.Element {
+}: InspectorProps) {
   const [tab, setTab] = useState<InspectorTab>('project');
   const settings = project.settings;
   const selectedTarget = EXPORT_TARGETS.find((target) => target.aspect === settings.primaryAspect) ?? EXPORT_TARGETS[0];
@@ -151,8 +151,25 @@ export function Inspector({
     ? project.timeline.exportMarkers.find((marker) => marker.id === project.timeline.selected?.id)
     : undefined;
   const selectedExportRange = project.timeline.selected?.type === 'export-range';
+  const activeMediaTransform = settings.mediaTransforms?.[settings.primaryAspect] ?? DEFAULT_MEDIA_TRANSFORMS[settings.primaryAspect];
 
   const assetName = (path?: string): string => path?.split(/[\\/]/).pop() ?? 'None selected';
+  const updateActiveMediaTransform = (patch: Partial<typeof activeMediaTransform>): void => {
+    const mediaTransforms = {
+      ...DEFAULT_MEDIA_TRANSFORMS,
+      ...settings.mediaTransforms
+    };
+
+    onSettingsChange({
+      mediaTransforms: {
+        ...mediaTransforms,
+        [settings.primaryAspect]: {
+          ...activeMediaTransform,
+          ...patch
+        }
+      }
+    });
+  };
 
   return (
     <aside className="inspector panel">
@@ -299,6 +316,10 @@ export function Inspector({
             </div>
             <Field label="Cover art">
               <select value={project.coverArtPath ?? ''} onChange={(event) => {
+                if (!event.target.value) {
+                  onSetCover(undefined);
+                  return;
+                }
                 const asset = scan?.groups.coverArt.find((item) => item.path === event.target.value);
                 if (asset) onSetCover(asset);
               }}>
@@ -308,6 +329,10 @@ export function Inspector({
             </Field>
             <Field label="Video cover art">
               <select value={project.videoCoverPath ?? ''} onChange={(event) => {
+                if (!event.target.value) {
+                  onSetVideo(undefined);
+                  return;
+                }
                 const asset = scan?.groups.videoCoverArt.find((item) => item.path === event.target.value);
                 if (asset) onSetVideo(asset);
               }}>
@@ -420,6 +445,19 @@ export function Inspector({
                 <option value="hybrid">Hybrid still + motion overlays</option>
               </select>
             </Field>
+            <div className="notice">Media framing applies to the active aspect ratio. Drag the preview to reposition; Ctrl+wheel scales it.</div>
+            <Field label="Media X">
+              <input type="range" min="0" max="100" step="0.5" value={activeMediaTransform.positionX} onChange={(event) => updateActiveMediaTransform({ positionX: Number(event.target.value) })} />
+            </Field>
+            <Field label="Media Y">
+              <input type="range" min="0" max="100" step="0.5" value={activeMediaTransform.positionY} onChange={(event) => updateActiveMediaTransform({ positionY: Number(event.target.value) })} />
+            </Field>
+            <Field label="Media scale">
+              <input type="range" min="1" max="2.5" step="0.01" value={activeMediaTransform.scale} onChange={(event) => updateActiveMediaTransform({ scale: Number(event.target.value) })} />
+            </Field>
+            <button className="secondary-button" type="button" onClick={() => updateActiveMediaTransform(DEFAULT_MEDIA_TRANSFORMS[settings.primaryAspect])}>
+              Reset active framing
+            </button>
             <EffectControl label="Particles" value={settings.effects.particles} onChange={(particles) => onSettingsChange({ effects: { ...settings.effects, particles } })} />
             <EffectControl label="Scanlines" value={settings.effects.scanlines} onChange={(scanlines) => onSettingsChange({ effects: { ...settings.effects, scanlines } })} />
             <EffectControl label="Light sweep" value={settings.effects.lightSweep} onChange={(lightSweep) => onSettingsChange({ effects: { ...settings.effects, lightSweep } })} />

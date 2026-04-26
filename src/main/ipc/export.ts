@@ -13,6 +13,7 @@ import type {
   FfmpegStatus,
   ProjectConfig
 } from '../../shared/types';
+import { DEFAULT_MEDIA_TRANSFORMS } from '../../shared/types';
 
 const QUALITY_ARGS: Record<string, string[]> = {
   draft: ['-crf', '28', '-preset', 'veryfast'],
@@ -77,9 +78,19 @@ function escapeDrawtext(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'").replace(/\[/g, '\\[').replace(/\]/g, '\\]');
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
 function buildFilter(project: ProjectConfig, request: ExportRequest): string {
   const { width, height } = request.target;
   const settings = project.settings;
+  const mediaTransform = settings.mediaTransforms?.[request.target.aspect] ?? DEFAULT_MEDIA_TRANSFORMS[request.target.aspect];
+  const mediaScale = clamp(mediaTransform.scale || 1, 1, 2.5);
+  const mediaPositionX = (clamp(mediaTransform.positionX, 0, 100) / 100).toFixed(4);
+  const mediaPositionY = (clamp(mediaTransform.positionY, 0, 100) / 100).toFixed(4);
+  const scaledWidth = Math.ceil((width * mediaScale) / 2) * 2;
+  const scaledHeight = Math.ceil((height * mediaScale) / 2) * 2;
   const title = escapeDrawtext(project.title || safeBaseName(project.selectedSongPath ?? 'TeaserForge'));
   const subtitle = escapeDrawtext(project.subtitle || '');
   const fontSize = Math.max(24, Math.round(settings.fontSize * (width / 1080)));
@@ -87,7 +98,7 @@ function buildFilter(project: ProjectConfig, request: ExportRequest): string {
   const margin = Math.round(Math.min(width, height) * 0.07);
   const glowAlpha = Math.min(1, Math.max(0, settings.glowAmount / 80)).toFixed(2);
   const filterParts: string[] = [
-    `[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1,format=rgba[bg]`
+    `[0:v]scale=${scaledWidth}:${scaledHeight}:force_original_aspect_ratio=increase,crop=${width}:${height}:x='(in_w-out_w)*${mediaPositionX}':y='(in_h-out_h)*${mediaPositionY}',setsar=1,format=rgba[bg]`
   ];
 
   let current = '[bg]';

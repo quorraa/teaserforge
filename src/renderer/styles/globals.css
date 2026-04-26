@@ -555,6 +555,14 @@ button:disabled {
   background: #02050a;
 }
 
+.preview-stage.editable-media {
+  cursor: grab;
+}
+
+.preview-stage.editable-media.panning {
+  cursor: grabbing;
+}
+
 .preview-grid-main.focused .preview-stage {
   width: min(100cqw, var(--focused-preview-max-width));
 }
@@ -576,6 +584,8 @@ button:disabled {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  pointer-events: none;
+  will-change: object-position, transform;
 }
 
 .preview-placeholder {
@@ -772,7 +782,7 @@ button:disabled {
 .timeline {
   min-height: 0;
   display: grid;
-  grid-template-rows: 52px 30px 1fr;
+  grid-template-rows: 52px minmax(0, 1fr);
   overflow: hidden;
 }
 
@@ -813,6 +823,25 @@ button:disabled {
   width: 90px;
 }
 
+.timeline-zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.timeline-zoom-controls input {
+  width: 86px;
+  accent-color: var(--cyan);
+}
+
+.timeline-zoom-controls span {
+  width: 38px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .preset-row {
   margin-left: auto;
   display: flex;
@@ -834,9 +863,57 @@ button:disabled {
   color: var(--muted);
 }
 
+.timeline-editor {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 136px 1fr;
+  grid-template-rows: 30px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.timeline-ruler-label {
+  grid-column: 1;
+  grid-row: 1;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.timeline-labels {
+  grid-column: 1;
+  grid-row: 2;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 32px 78px 34px 34px 34px 34px 38px;
+}
+
+.timeline-scroll {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.timeline-scroll::-webkit-scrollbar {
+  height: 8px;
+}
+
+.timeline-scroll::-webkit-scrollbar-thumb {
+  background: rgba(143, 177, 219, 0.28);
+  border-radius: 999px;
+}
+
+.timeline-content {
+  min-width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-rows: 30px minmax(0, 1fr);
+}
+
 .timeline-ruler {
   position: relative;
-  margin-left: 136px;
   border-bottom: 1px solid var(--line);
   color: var(--muted);
   font-size: 10px;
@@ -848,12 +925,10 @@ button:disabled {
   transform: translateX(-50%);
 }
 
-.timeline-grid {
+.timeline-lanes {
   min-height: 0;
   display: grid;
-  grid-template-columns: 136px 1fr;
   grid-template-rows: 32px 78px 34px 34px 34px 34px 38px;
-  overflow: hidden;
 }
 
 .track-label {
