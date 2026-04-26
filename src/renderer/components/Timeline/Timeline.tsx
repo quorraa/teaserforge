@@ -103,6 +103,22 @@ function clipClass(clip: TimelineClip): string {
   return 'effect-clip';
 }
 
+function fadeLevelForAbsoluteTime(absoluteTime: number, settings: TeaserSettings): number {
+  if (!settings.fadeAudio) return 1;
+  const duration = Math.max(1, settings.endOffset - settings.startOffset || settings.teaserDuration);
+  const relativeTime = clamp(absoluteTime - settings.startOffset, 0, duration);
+  const fadeInDuration = clamp(settings.fadeInDuration ?? settings.fadeDuration ?? 0, 0, duration / 2);
+  const fadeOutDuration = clamp(settings.fadeOutDuration ?? settings.fadeDuration ?? 0, 0, duration / 2);
+  const fadeInLevel = fadeInDuration > 0 ? clamp(relativeTime / fadeInDuration, 0, 1) : 1;
+  const fadeOutLevel = fadeOutDuration > 0 ? clamp((duration - relativeTime) / fadeOutDuration, 0, 1) : 1;
+  return clamp(Math.min(fadeInLevel, fadeOutLevel), 0, 1);
+}
+
+function previewVolumeForAbsoluteTime(masterVolume: number, settings: TeaserSettings, absoluteTime: number): number {
+  const gain = clamp(settings.audioGain ?? 1, 0, 3);
+  return clamp(masterVolume * gain * fadeLevelForAbsoluteTime(absoluteTime, settings), 0, 1);
+}
+
 export function Timeline({
   project,
   selectedSong,
@@ -129,6 +145,7 @@ export function Timeline({
   const waveSurferRef = useRef<WaveSurfer | null>(null);
   const regionRef = useRef<any>(null);
   const currentTimeRef = useRef(currentTime);
+  const volumeRef = useRef(0.86);
   const [playing, setPlaying] = useState(false);
   const [volume, setVolume] = useState(0.86);
   const [audioDuration, setAudioDuration] = useState(0);
@@ -154,13 +171,25 @@ export function Timeline({
 
   const waveformBars = useMemo(() => syntheticBars(140, selectedSong?.name ?? project.title), [project.title, selectedSong?.name]);
 
+  const applyPreviewVolume = useCallback((absoluteTime = settingsRef.current.startOffset + currentTimeRef.current): void => {
+    const wavesurfer = waveSurferRef.current;
+    if (!wavesurfer) return;
+    wavesurfer.setVolume(previewVolumeForAbsoluteTime(volumeRef.current, settingsRef.current, absoluteTime));
+  }, []);
+
   useEffect(() => {
     settingsRef.current = settings;
-  }, [settings]);
+    applyPreviewVolume(settings.startOffset + currentTimeRef.current);
+  }, [applyPreviewVolume, settings]);
 
   useEffect(() => {
     currentTimeRef.current = currentTime;
   }, [currentTime]);
+
+  useEffect(() => {
+    volumeRef.current = volume;
+    applyPreviewVolume();
+  }, [applyPreviewVolume, volume]);
 
   useEffect(() => {
     if (!waveformRef.current || !selectedSong || isDemo) return;
@@ -185,9 +214,9 @@ export function Timeline({
     wavesurfer.on('ready', () => {
       const duration = wavesurfer.getDuration();
       setAudioDuration(duration);
-      wavesurfer.setVolume(volume);
       const start = Math.min(settings.startOffset, Math.max(0, duration - 1));
       const end = Math.min(Math.max(settings.endOffset, start + 1), duration);
+      wavesurfer.setVolume(previewVolumeForAbsoluteTime(volumeRef.current, settingsRef.current, start));
       regionRef.current = regions.addRegion({
         start,
         end,
@@ -207,13 +236,16 @@ export function Timeline({
     wavesurfer.on('timeupdate', (time) => {
       const latestSettings = settingsRef.current;
       onCurrentTime(Math.max(0, time - latestSettings.startOffset));
+      wavesurfer.setVolume(previewVolumeForAbsoluteTime(volumeRef.current, latestSettings, time));
       if (latestSettings.loopRegion && time >= latestSettings.endOffset) {
         wavesurfer.setTime(latestSettings.startOffset);
+        wavesurfer.setVolume(previewVolumeForAbsoluteTime(volumeRef.current, latestSettings, latestSettings.startOffset));
         wavesurfer.play();
       }
     });
 
     wavesurfer.on('play', () => {
+      applyPreviewVolume(wavesurfer.getCurrentTime());
       setPlaying(true);
       onPlaybackChange(true);
     });
@@ -240,6 +272,7 @@ export function Timeline({
 
     regions.on('region-clicked', (region: any, event: MouseEvent) => {
       event.stopPropagation();
+      wavesurfer.setVolume(previewVolumeForAbsoluteTime(volumeRef.current, settingsRef.current, region.start));
       region.play();
     });
 
@@ -249,10 +282,6 @@ export function Timeline({
       wavesurfer.destroy();
     };
   }, [selectedSong?.path, isDemo]);
-
-  useEffect(() => {
-    waveSurferRef.current?.setVolume(volume);
-  }, [volume]);
 
   useEffect(() => {
     if (!regionRef.current || !audioDuration) return;
@@ -355,25 +384,29 @@ export function Timeline({
       wavesurfer.pause();
       return;
     }
+    applyPreviewVolume(settings.startOffset);
     wavesurfer.play(settings.startOffset, settings.endOffset);
-  }, [onPlaybackChange, playing, settings.endOffset, settings.startOffset]);
+  }, [applyPreviewVolume, onPlaybackChange, playing, settings.endOffset, settings.startOffset]);
 
   const playRegion = useCallback(() => {
     if (waveSurferRef.current) {
+      applyPreviewVolume(settings.startOffset);
       waveSurferRef.current.play(settings.startOffset, settings.endOffset);
       return;
     }
     setPlaying(true);
     onPlaybackChange(true);
-  }, [onPlaybackChange, settings.endOffset, settings.startOffset]);
+  }, [applyPreviewVolume, onPlaybackChange, settings.endOffset, settings.startOffset]);
 
   const stepFrame = useCallback((direction: -1 | 1): void => {
     const delta = 1 / settings.frameRate;
     const nextTime = clamp(currentTimeRef.current + delta * direction, 0, teaserDuration);
     currentTimeRef.current = nextTime;
     onCurrentTime(nextTime);
-    waveSurferRef.current?.setTime(settings.startOffset + nextTime);
-  }, [onCurrentTime, settings.frameRate, settings.startOffset, teaserDuration]);
+    const absoluteTime = settings.startOffset + nextTime;
+    waveSurferRef.current?.setTime(absoluteTime);
+    applyPreviewVolume(absoluteTime);
+  }, [applyPreviewVolume, onCurrentTime, settings.frameRate, settings.startOffset, teaserDuration]);
 
   useEffect(() => {
     (window as Window & { teaserForgePlayRegion?: () => void }).teaserForgePlayRegion = playRegion;
@@ -466,6 +499,7 @@ export function Timeline({
     currentTimeRef.current = nextTime;
     onCurrentTime(nextTime);
     waveSurferRef.current?.setTime(absoluteTime);
+    applyPreviewVolume(absoluteTime);
   };
 
   const beginAudioSeek = (event: ReactPointerEvent<HTMLElement>): void => {
@@ -658,6 +692,7 @@ export function Timeline({
           onStop={() => {
             waveSurferRef.current?.pause();
             waveSurferRef.current?.setTime(settings.startOffset);
+            applyPreviewVolume(settings.startOffset);
             setPlaying(false);
             onPlaybackChange(false);
             currentTimeRef.current = 0;
@@ -665,11 +700,13 @@ export function Timeline({
           }}
           onJumpStart={() => {
             waveSurferRef.current?.setTime(settings.startOffset);
+            applyPreviewVolume(settings.startOffset);
             currentTimeRef.current = 0;
             onCurrentTime(0);
           }}
           onJumpEnd={() => {
             waveSurferRef.current?.setTime(settings.endOffset);
+            applyPreviewVolume(settings.endOffset);
             currentTimeRef.current = teaserDuration;
             onCurrentTime(teaserDuration);
           }}
