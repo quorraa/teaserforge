@@ -808,6 +808,67 @@ button:disabled {
   backdrop-filter: blur(5px);
 }
 
+.preview-audio-envelope {
+  --fade-level: 1;
+  --fade-line-top: 0%;
+  --fade-meter-height: 100%;
+  --fade-in-width: 0%;
+  --fade-out-width: 0%;
+  --fade-progress: 0%;
+  position: absolute;
+  left: 7%;
+  right: 7%;
+  bottom: 7.2%;
+  height: 11%;
+  z-index: 5;
+  pointer-events: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.24);
+}
+
+.preview-audio-envelope::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--fade-line-top);
+  height: 1px;
+  background: rgba(255, 255, 255, 0.75);
+  box-shadow: 0 0 12px rgba(0, 216, 255, 0.7);
+}
+
+.preview-audio-envelope .fade-ramp {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  opacity: 0.64;
+}
+
+.preview-audio-envelope .fade-in {
+  left: 0;
+  width: var(--fade-in-width);
+  background: linear-gradient(135deg, rgba(0, 216, 255, 0), rgba(0, 216, 255, 0.48));
+  clip-path: polygon(0 100%, 100% 0, 100% 100%);
+}
+
+.preview-audio-envelope .fade-out {
+  right: 0;
+  width: var(--fade-out-width);
+  background: linear-gradient(225deg, rgba(139, 92, 246, 0), rgba(139, 92, 246, 0.5));
+  clip-path: polygon(0 0, 100% 100%, 0 100%);
+}
+
+.preview-audio-envelope i {
+  position: absolute;
+  left: var(--fade-progress);
+  bottom: 0;
+  width: 2px;
+  height: var(--fade-meter-height);
+  transform: translateX(-1px);
+  border-radius: 999px;
+  background: white;
+  box-shadow: 0 0 14px rgba(255, 255, 255, 0.85);
+}
+
 .preview-progress {
   position: absolute;
   left: 7%;
@@ -1312,6 +1373,24 @@ button:disabled {
 .audio-fade-handle.fade-out {
   background: rgba(139, 92, 246, 0.72);
   box-shadow: 0 0 14px rgba(139, 92, 246, 0.42);
+}
+
+.audio-fade-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.audio-fade-zone.fade-in-zone {
+  background: linear-gradient(90deg, rgba(0, 216, 255, 0.28), rgba(0, 216, 255, 0.02));
+  border-right: 1px solid rgba(0, 216, 255, 0.42);
+}
+
+.audio-fade-zone.fade-out-zone {
+  background: linear-gradient(90deg, rgba(139, 92, 246, 0.02), rgba(139, 92, 246, 0.28));
+  border-left: 1px solid rgba(139, 92, 246, 0.42);
 }
 
 .tabs {

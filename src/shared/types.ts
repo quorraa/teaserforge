@@ -135,6 +135,9 @@ export interface TeaserSettings {
   normalizeAudio: boolean;
   fadeAudio: boolean;
   fadeDuration: number;
+  fadeInDuration: number;
+  fadeOutDuration: number;
+  fadeDurationsLinked: boolean;
   audioGain: number;
   regionStart: number;
   regionEnd: number;
@@ -310,6 +313,9 @@ export const DEFAULT_SETTINGS: TeaserSettings = {
   normalizeAudio: false,
   fadeAudio: true,
   fadeDuration: 0.4,
+  fadeInDuration: 0.4,
+  fadeOutDuration: 0.4,
+  fadeDurationsLinked: true,
   audioGain: 1,
   regionStart: 0,
   regionEnd: 15,

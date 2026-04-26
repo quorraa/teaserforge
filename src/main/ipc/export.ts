@@ -177,9 +177,10 @@ function buildArgs(request: ExportRequest): string[] {
   if (settings.audioGain !== 1) audioFilters.push(`volume=${Math.max(0, Math.min(settings.audioGain ?? 1, 3))}`);
   if (settings.normalizeAudio) audioFilters.push('loudnorm=I=-16:TP=-1.5:LRA=11');
   if (settings.fadeAudio) {
-    const fadeDuration = Math.max(0.05, Math.min(settings.fadeDuration, duration / 2));
-    audioFilters.push(`afade=t=in:st=0:d=${fadeDuration}`);
-    audioFilters.push(`afade=t=out:st=${Math.max(0, duration - fadeDuration)}:d=${fadeDuration}`);
+    const fadeInDuration = clamp(settings.fadeInDuration ?? settings.fadeDuration ?? 0, 0, duration / 2);
+    const fadeOutDuration = clamp(settings.fadeOutDuration ?? settings.fadeDuration ?? 0, 0, duration / 2);
+    if (fadeInDuration > 0.005) audioFilters.push(`afade=t=in:st=0:d=${fadeInDuration}`);
+    if (fadeOutDuration > 0.005) audioFilters.push(`afade=t=out:st=${Math.max(0, duration - fadeOutDuration)}:d=${fadeOutDuration}`);
   }
 
   const args = ['-y'];

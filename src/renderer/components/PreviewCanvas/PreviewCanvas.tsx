@@ -62,6 +62,12 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+function fadeLevelAtTime(currentTime: number, duration: number, fadeInDuration: number, fadeOutDuration: number): number {
+  const fadeInLevel = fadeInDuration > 0 ? clamp(currentTime / fadeInDuration, 0, 1) : 1;
+  const fadeOutLevel = fadeOutDuration > 0 ? clamp((duration - currentTime) / fadeOutDuration, 0, 1) : 1;
+  return clamp(Math.min(fadeInLevel, fadeOutLevel), 0, 1);
+}
+
 export function PreviewCanvas({
   preset,
   project,
@@ -85,6 +91,11 @@ export function PreviewCanvas({
   const [draggingText, setDraggingText] = useState<'title' | 'subtitle' | null>(null);
   const duration = Math.max(1, settings.endOffset - settings.startOffset || settings.teaserDuration);
   const progress = Math.min(1, Math.max(0, currentTime / duration));
+  const fadeInDuration = settings.fadeAudio ? clamp(settings.fadeInDuration ?? settings.fadeDuration ?? 0, 0, duration / 2) : 0;
+  const fadeOutDuration = settings.fadeAudio ? clamp(settings.fadeOutDuration ?? settings.fadeDuration ?? 0, 0, duration / 2) : 0;
+  const fadeLevel = settings.fadeAudio ? fadeLevelAtTime(currentTime, duration, fadeInDuration, fadeOutDuration) : 1;
+  const fadeInPercent = (fadeInDuration / duration) * 100;
+  const fadeOutPercent = (fadeOutDuration / duration) * 100;
   const tracks = { ...DEFAULT_TRACKS, ...project.timeline.tracks };
   const wantsVideo = settings.backgroundType !== 'static-cover' && video && !videoFailed && tracks.video.visible && !tracks.video.muted;
   const background = wantsVideo ? video : tracks.cover.visible && !tracks.cover.muted ? cover : undefined;
@@ -326,8 +337,33 @@ export function PreviewCanvas({
           {settings.waveformDisplay && (
             <div className={`preview-waveform ${settings.waveformStyle}`}>
               {bars.map((height, index) => (
-                <span key={`${preset.key}-${index}`} style={{ height: `${18 + height * 62}%` }} />
+                <span
+                  key={`${preset.key}-${index}`}
+                  style={{
+                    height: `${8 + (18 + height * 62) * (0.32 + fadeLevel * 0.68)}%`,
+                    opacity: 0.28 + fadeLevel * 0.72
+                  }}
+                />
               ))}
+            </div>
+          )}
+
+          {settings.fadeAudio && (
+            <div
+              className="preview-audio-envelope"
+              style={{
+                '--fade-level': String(fadeLevel),
+                '--fade-line-top': `${(1 - fadeLevel) * 100}%`,
+                '--fade-meter-height': `${Math.max(8, fadeLevel * 100)}%`,
+                '--fade-in-width': `${fadeInPercent}%`,
+                '--fade-out-width': `${fadeOutPercent}%`,
+                '--fade-progress': `${progress * 100}%`
+              } as CSSProperties}
+              aria-hidden="true"
+            >
+              {fadeInDuration > 0 && <span className="fade-ramp fade-in" />}
+              {fadeOutDuration > 0 && <span className="fade-ramp fade-out" />}
+              <i />
             </div>
           )}
 

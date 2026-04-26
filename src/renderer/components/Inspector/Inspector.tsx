@@ -161,6 +161,11 @@ export function Inspector({
   const selectedExportRange = project.timeline.selected?.type === 'export-range';
   const activeMediaTransform = settings.mediaTransforms?.[settings.primaryAspect] ?? DEFAULT_MEDIA_TRANSFORMS[settings.primaryAspect];
   const activeTextTransform = settings.textTransforms?.[settings.primaryAspect] ?? DEFAULT_TEXT_TRANSFORMS[settings.primaryAspect];
+  const teaserDuration = Math.max(1, settings.endOffset - settings.startOffset || settings.teaserDuration);
+  const maxFadeDuration = Math.max(0, teaserDuration / 2);
+  const fadeInDuration = Math.min(settings.fadeInDuration ?? settings.fadeDuration ?? 0, maxFadeDuration);
+  const fadeOutDuration = Math.min(settings.fadeOutDuration ?? settings.fadeDuration ?? 0, maxFadeDuration);
+  const fadeDurationsLinked = settings.fadeDurationsLinked ?? true;
 
   const assetName = (path?: string): string => path?.split(/[\\/]/).pop() ?? 'None selected';
   const updateActiveMediaTransform = (patch: Partial<typeof activeMediaTransform>): void => {
@@ -196,6 +201,38 @@ export function Inspector({
           }
         }
       }
+    });
+  };
+  const updateFadeDurationsLinked = (linked: boolean): void => {
+    if (!linked) {
+      onSettingsChange({ fadeDurationsLinked: false });
+      return;
+    }
+    const nextDuration = Math.max(fadeInDuration, fadeOutDuration);
+    onSettingsChange({
+      fadeDuration: nextDuration,
+      fadeInDuration: nextDuration,
+      fadeOutDuration: nextDuration,
+      fadeDurationsLinked: true
+    });
+  };
+  const updateFadeDuration = (type: 'linked' | 'in' | 'out', value: number): void => {
+    const nextDuration = Math.min(Math.max(0, value), maxFadeDuration);
+    if (type === 'linked' || fadeDurationsLinked) {
+      onSettingsChange({
+        fadeDuration: nextDuration,
+        fadeInDuration: nextDuration,
+        fadeOutDuration: nextDuration
+      });
+      return;
+    }
+
+    const nextFadeInDuration = type === 'in' ? nextDuration : fadeInDuration;
+    const nextFadeOutDuration = type === 'out' ? nextDuration : fadeOutDuration;
+    onSettingsChange({
+      fadeDuration: Math.max(nextFadeInDuration, nextFadeOutDuration),
+      fadeInDuration: nextFadeInDuration,
+      fadeOutDuration: nextFadeOutDuration
     });
   };
 
@@ -572,9 +609,44 @@ export function Inspector({
             <Field label="Fade in/out">
               <Switch checked={settings.fadeAudio} onChange={(fadeAudio) => onSettingsChange({ fadeAudio })} />
             </Field>
-            <Field label="Fade duration">
-              <input type="number" min="0" max="10" step="0.05" value={settings.fadeDuration} onChange={(event) => onSettingsChange({ fadeDuration: parseNumber(event.target.value, settings.fadeDuration) })} />
+            <Field label="Symmetrical fade">
+              <Switch checked={fadeDurationsLinked} onChange={updateFadeDurationsLinked} />
             </Field>
+            {fadeDurationsLinked ? (
+              <Field label="Fade duration">
+                <input
+                  type="number"
+                  min="0"
+                  max={maxFadeDuration}
+                  step="0.05"
+                  value={fadeInDuration}
+                  onChange={(event) => updateFadeDuration('linked', parseNumber(event.target.value, fadeInDuration))}
+                />
+              </Field>
+            ) : (
+              <>
+                <Field label="Fade in">
+                  <input
+                    type="number"
+                    min="0"
+                    max={maxFadeDuration}
+                    step="0.05"
+                    value={fadeInDuration}
+                    onChange={(event) => updateFadeDuration('in', parseNumber(event.target.value, fadeInDuration))}
+                  />
+                </Field>
+                <Field label="Fade out">
+                  <input
+                    type="number"
+                    min="0"
+                    max={maxFadeDuration}
+                    step="0.05"
+                    value={fadeOutDuration}
+                    onChange={(event) => updateFadeDuration('out', parseNumber(event.target.value, fadeOutDuration))}
+                  />
+                </Field>
+              </>
+            )}
             <Field label="Snippet region start">
               <input type="number" min="0" step="0.01" value={settings.regionStart} onChange={(event) => onSettingsChange({ regionStart: parseNumber(event.target.value, settings.regionStart), startOffset: parseNumber(event.target.value, settings.regionStart) })} />
             </Field>
@@ -588,7 +660,7 @@ export function Inspector({
               <Play size={15} />
               Play selected region
             </button>
-            <div className="notice">Drag the fade handles on the waveform lane to adjust fade length visually. Click or drag the waveform lane to scrub.</div>
+            <div className="notice">Drag the fade handles on the waveform lane to adjust fade length visually. The preview waveform follows the current fade level while playback or scrubbing moves through the teaser.</div>
           </div>
         )}
 

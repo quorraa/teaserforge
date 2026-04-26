@@ -42,6 +42,19 @@ function mergeTracks(saved?: Partial<Record<TimelineTrackId, TimelineTrackState>
   }), {} as Record<TimelineTrackId, TimelineTrackState>);
 }
 
+function mergeSettings(saved?: ProjectConfig['settings']): ProjectConfig['settings'] {
+  const legacyFadeDuration = saved?.fadeDuration ?? DEFAULT_PROJECT.settings.fadeDuration;
+  return {
+    ...DEFAULT_PROJECT.settings,
+    ...saved,
+    fadeInDuration: saved?.fadeInDuration ?? legacyFadeDuration,
+    fadeOutDuration: saved?.fadeOutDuration ?? legacyFadeDuration,
+    fadeDurationsLinked: saved?.fadeDurationsLinked ?? true,
+    mediaTransforms: mergeMediaTransforms(saved?.mediaTransforms),
+    textTransforms: mergeTextTransforms(saved?.textTransforms)
+  };
+}
+
 function cloneDefaultTimeline() {
   return {
     clips: DEFAULT_TIMELINE.clips.map((clip) => ({ ...clip })),
@@ -76,12 +89,7 @@ export function createProjectForRoot(rootPath: string, rootName: string, saved?:
     title: hasSavedProject ? savedTitle : '',
     subtitle: hasSavedProject ? savedSubtitle : '',
     pairings: saved?.pairings ?? {},
-    settings: {
-      ...DEFAULT_PROJECT.settings,
-      ...saved?.settings,
-      mediaTransforms: mergeMediaTransforms(saved?.settings?.mediaTransforms),
-      textTransforms: mergeTextTransforms(saved?.settings?.textTransforms)
-    },
+    settings: mergeSettings(saved?.settings),
     timeline: normalizeTimeline(saved?.timeline),
     updatedAt: saved?.updatedAt ?? new Date().toISOString()
   };

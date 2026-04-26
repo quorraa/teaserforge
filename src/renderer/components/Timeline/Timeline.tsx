@@ -2,7 +2,7 @@ import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.esm.js';
 import WaveSurfer from 'wavesurfer.js';
 import { Copy, Eye, EyeOff, Lock, Scissors, StepBack, StepForward, Trash2, Unlock, Volume2, VolumeX, Wand2, ZoomIn, ZoomOut } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react';
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import type {
   AspectRatioKey,
   MediaAsset,
@@ -125,6 +125,7 @@ export function Timeline({
   onPlaybackChange
 }: TimelineProps) {
   const waveformRef = useRef<HTMLDivElement | null>(null);
+  const timelineScrollRef = useRef<HTMLDivElement | null>(null);
   const waveSurferRef = useRef<WaveSurfer | null>(null);
   const regionRef = useRef<any>(null);
   const currentTimeRef = useRef(currentTime);
@@ -146,6 +147,8 @@ export function Timeline({
     ...project.timeline.clips.map((clip) => clip.end)
   ];
   const teaserDuration = Math.max(1, settings.endOffset - settings.startOffset || settings.teaserDuration);
+  const fadeInDuration = clamp(settings.fadeInDuration ?? settings.fadeDuration ?? 0, 0, teaserDuration / 2);
+  const fadeOutDuration = clamp(settings.fadeOutDuration ?? settings.fadeDuration ?? 0, 0, teaserDuration / 2);
   const timelineSpan = Math.max(MIN_TIMELINE_SPAN, Math.ceil(Math.max(...allTimelineEnds, teaserDuration, audioDuration)));
   const disabled = !selectedSong;
 
@@ -417,11 +420,20 @@ export function Timeline({
     setTimelineZoom((currentZoom) => snapZoom(currentZoom + delta));
   };
 
-  const handleTimelineWheel = (event: ReactWheelEvent<HTMLDivElement>): void => {
-    if (!event.ctrlKey && !event.metaKey) return;
-    event.preventDefault();
-    adjustZoom(event.deltaY < 0 ? TIMELINE_ZOOM_STEP : -TIMELINE_ZOOM_STEP);
-  };
+  useEffect(() => {
+    const scrollElement = timelineScrollRef.current;
+    if (!scrollElement) return;
+
+    const handleTimelineWheel = (event: WheelEvent): void => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      setTimelineZoom((currentZoom) => snapZoom(currentZoom + (event.deltaY < 0 ? TIMELINE_ZOOM_STEP : -TIMELINE_ZOOM_STEP)));
+    };
+
+    scrollElement.addEventListener('wheel', handleTimelineWheel, { passive: false });
+    return () => scrollElement.removeEventListener('wheel', handleTimelineWheel);
+  }, []);
+
 
   const beginDrag = (
     event: ReactPointerEvent<HTMLElement>,
@@ -471,12 +483,28 @@ export function Timeline({
   const setFadeFromClientX = (type: 'in' | 'out', clientX: number, lane: HTMLElement): void => {
     const rect = lane.getBoundingClientRect();
     const absoluteTime = clamp(((clientX - rect.left) / rect.width) * timelineSpan, settings.startOffset, settings.endOffset);
-    const fadeDuration = type === 'in'
+    const nextDuration = Math.round(clamp(type === 'in'
       ? absoluteTime - settings.startOffset
-      : settings.endOffset - absoluteTime;
+      : settings.endOffset - absoluteTime, 0, teaserDuration / 2) * 100) / 100;
+    const fadeDurationsLinked = settings.fadeDurationsLinked ?? true;
+
+    if (fadeDurationsLinked) {
+      onSettingsChange({
+        fadeAudio: true,
+        fadeDuration: nextDuration,
+        fadeInDuration: nextDuration,
+        fadeOutDuration: nextDuration
+      });
+      return;
+    }
+
+    const nextFadeInDuration = type === 'in' ? nextDuration : fadeInDuration;
+    const nextFadeOutDuration = type === 'out' ? nextDuration : fadeOutDuration;
     onSettingsChange({
       fadeAudio: true,
-      fadeDuration: Math.round(clamp(fadeDuration, 0, teaserDuration / 2) * 100) / 100
+      fadeDuration: Math.max(nextFadeInDuration, nextFadeOutDuration),
+      fadeInDuration: nextFadeInDuration,
+      fadeOutDuration: nextFadeOutDuration
     });
   };
 
@@ -708,7 +736,7 @@ export function Timeline({
           <div className="track-label">Export Range</div>
         </div>
 
-        <div className="timeline-scroll" onWheel={handleTimelineWheel}>
+        <div className="timeline-scroll" ref={timelineScrollRef}>
           <div className="timeline-content" style={{ width: `${timelineZoom * 100}%` }}>
             <div className="timeline-ruler" onPointerDown={(event) => {
               const lane = event.currentTarget;
@@ -733,6 +761,18 @@ export function Timeline({
 
               <div className="track-lane waveform-lane">
                 <div className="playhead" style={{ left: `${progress * 100}%` }} />
+                {settings.fadeAudio && fadeInDuration > 0 && (
+                  <div
+                    className="audio-fade-zone fade-in-zone"
+                    style={{ left: timeToLeft(settings.startOffset, timelineSpan), width: timeToWidth(settings.startOffset, settings.startOffset + fadeInDuration, timelineSpan) }}
+                  />
+                )}
+                {settings.fadeAudio && fadeOutDuration > 0 && (
+                  <div
+                    className="audio-fade-zone fade-out-zone"
+                    style={{ left: timeToLeft(settings.endOffset - fadeOutDuration, timelineSpan), width: timeToWidth(settings.endOffset - fadeOutDuration, settings.endOffset, timelineSpan) }}
+                  />
+                )}
                 {isDemo || !selectedSong ? (
                   <div className="synthetic-wave">
                     {waveformBars.map((height, index) => <span key={index} style={{ height: `${height * 100}%` }} />)}
@@ -742,13 +782,13 @@ export function Timeline({
                 )}
                 <div
                   className="audio-fade-handle fade-in"
-                  style={{ left: timeToLeft(settings.startOffset + settings.fadeDuration, timelineSpan) }}
+                  style={{ left: timeToLeft(settings.startOffset + fadeInDuration, timelineSpan) }}
                   title="Drag fade-in duration"
                   onPointerDown={(event) => beginFadeDrag(event, 'in')}
                 />
                 <div
                   className="audio-fade-handle fade-out"
-                  style={{ left: timeToLeft(settings.endOffset - settings.fadeDuration, timelineSpan) }}
+                  style={{ left: timeToLeft(settings.endOffset - fadeOutDuration, timelineSpan) }}
                   title="Drag fade-out duration"
                   onPointerDown={(event) => beginFadeDrag(event, 'out')}
                 />
