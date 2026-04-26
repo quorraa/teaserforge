@@ -1,7 +1,18 @@
 import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.esm.js';
 import WaveSurfer from 'wavesurfer.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { MediaAsset, ProjectConfig, TeaserSettings } from '../../../shared/types';
+import type { PointerEvent as ReactPointerEvent } from 'react';
+import type {
+  AspectRatioKey,
+  MediaAsset,
+  ProjectConfig,
+  TeaserSettings,
+  TimelineClip,
+  TimelineExportMarker,
+  TimelineSelection,
+  TimelineState,
+  TimelineTrackId
+} from '../../../shared/types';
 import { teaserForgeApi } from '../../lib/api';
 import { formatTime } from '../../lib/timecode';
 import { syntheticBars } from '../../lib/waveform';
@@ -16,10 +27,59 @@ interface TimelineProps {
   currentTime: number;
   onCurrentTime: (time: number) => void;
   onSettingsChange: (patch: Partial<TeaserSettings>) => void;
+  onTimelineChange: (timeline: TimelineState) => void;
+  onTimelineSelectionChange: (selection?: TimelineSelection) => void;
+  onTimelineClipChange: (clipId: string, patch: Partial<TimelineClip>) => void;
+  onTimelineMarkerChange: (markerId: string, patch: Partial<TimelineExportMarker>) => void;
+  onExportMarker: (aspect: AspectRatioKey) => void;
   onPlaybackChange: (playing: boolean) => void;
 }
 
+type DragMode = 'move' | 'start' | 'end';
+type DragKind = 'clip' | 'export-range';
+
+interface DragState {
+  kind: DragKind;
+  id: string;
+  mode: DragMode;
+  startX: number;
+  laneWidth: number;
+  originalStart: number;
+  originalEnd: number;
+}
+
 const PRESET_DURATIONS = [5, 10, 15, 20, 30, 45];
+const MIN_ITEM_DURATION = 0.25;
+const MIN_TIMELINE_SPAN = 45;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function snapTime(value: number): number {
+  return Math.round(value * 20) / 20;
+}
+
+function timeToLeft(start: number, span: number): string {
+  return `${clamp((start / span) * 100, 0, 100)}%`;
+}
+
+function timeToWidth(start: number, end: number, span: number): string {
+  return `${clamp(((end - start) / span) * 100, 0.8, 100)}%`;
+}
+
+function aspectChipClass(aspect: AspectRatioKey): string {
+  if (aspect === '9x16') return 'portrait';
+  if (aspect === '1x1') return 'square';
+  return 'landscape';
+}
+
+function clipClass(clip: TimelineClip): string {
+  if (clip.kind === 'title' || clip.kind === 'subtitle') return `text-clip ${clip.kind === 'subtitle' ? 'secondary' : ''}`;
+  if (clip.kind === 'cover-art') return 'media-clip';
+  if (clip.kind === 'video-cover') return 'video-clip';
+  return 'effect-clip';
+}
 
 export function Timeline({
   project,
@@ -30,18 +90,31 @@ export function Timeline({
   currentTime,
   onCurrentTime,
   onSettingsChange,
+  onTimelineChange,
+  onTimelineSelectionChange,
+  onTimelineClipChange,
+  onTimelineMarkerChange,
+  onExportMarker,
   onPlaybackChange
 }: TimelineProps): JSX.Element {
   const waveformRef = useRef<HTMLDivElement | null>(null);
   const waveSurferRef = useRef<WaveSurfer | null>(null);
   const regionRef = useRef<any>(null);
+  const currentTimeRef = useRef(currentTime);
   const [playing, setPlaying] = useState(false);
   const [volume, setVolume] = useState(0.86);
   const [audioDuration, setAudioDuration] = useState(0);
+  const [dragState, setDragState] = useState<DragState | null>(null);
   const settings = project.settings;
   const settingsRef = useRef(settings);
+  const selected = project.timeline.selected;
+  const allTimelineEnds = [
+    settings.endOffset,
+    ...project.timeline.clips.map((clip) => clip.end)
+  ];
   const teaserDuration = Math.max(1, settings.endOffset - settings.startOffset || settings.teaserDuration);
-  const disabled = !selectedSong || isDemo;
+  const timelineSpan = Math.max(MIN_TIMELINE_SPAN, Math.ceil(Math.max(...allTimelineEnds, teaserDuration, audioDuration)));
+  const disabled = !selectedSong;
 
   const waveformBars = useMemo(() => syntheticBars(140, selectedSong?.name ?? project.title), [project.title, selectedSong?.name]);
 
@@ -50,12 +123,16 @@ export function Timeline({
   }, [settings]);
 
   useEffect(() => {
+    currentTimeRef.current = currentTime;
+  }, [currentTime]);
+
+  useEffect(() => {
     if (!waveformRef.current || !selectedSong || isDemo) return;
 
     const wavesurfer = WaveSurfer.create({
       container: waveformRef.current,
       url: teaserForgeApi.mediaUrl(selectedSong.path),
-      height: 84,
+      height: 78,
       normalize: true,
       waveColor: '#3f2c75',
       progressColor: '#a66cff',
@@ -148,9 +225,85 @@ export function Timeline({
     regionRef.current.setOptions({ start, end });
   }, [settings.startOffset, settings.endOffset, audioDuration]);
 
+  useEffect(() => {
+    if (!playing || waveSurferRef.current) return;
+
+    const interval = window.setInterval(() => {
+      const latestSettings = settingsRef.current;
+      const duration = Math.max(1, latestSettings.endOffset - latestSettings.startOffset || latestSettings.teaserDuration);
+      const nextTime = currentTimeRef.current + 0.05;
+
+      if (nextTime >= duration) {
+        if (latestSettings.loopRegion || latestSettings.loop) {
+          currentTimeRef.current = 0;
+          onCurrentTime(0);
+          return;
+        }
+        currentTimeRef.current = duration;
+        onCurrentTime(duration);
+        setPlaying(false);
+        onPlaybackChange(false);
+        return;
+      }
+
+      currentTimeRef.current = nextTime;
+      onCurrentTime(nextTime);
+    }, 50);
+
+    return () => window.clearInterval(interval);
+  }, [onCurrentTime, onPlaybackChange, playing]);
+
+  useEffect(() => {
+    if (!dragState) return;
+
+    const handlePointerMove = (event: PointerEvent): void => {
+      const delta = ((event.clientX - dragState.startX) / dragState.laneWidth) * timelineSpan;
+      const originalDuration = dragState.originalEnd - dragState.originalStart;
+      let start = dragState.originalStart;
+      let end = dragState.originalEnd;
+
+      if (dragState.mode === 'move') {
+        start = clamp(dragState.originalStart + delta, 0, Math.max(0, timelineSpan - originalDuration));
+        end = start + originalDuration;
+      } else if (dragState.mode === 'start') {
+        start = clamp(dragState.originalStart + delta, 0, dragState.originalEnd - MIN_ITEM_DURATION);
+      } else {
+        end = clamp(dragState.originalEnd + delta, dragState.originalStart + MIN_ITEM_DURATION, timelineSpan);
+      }
+
+      const patch = { start: snapTime(start), end: snapTime(end) };
+      if (dragState.kind === 'clip') {
+        onTimelineClipChange(dragState.id, patch);
+      } else {
+        onSettingsChange({
+          startOffset: patch.start,
+          endOffset: patch.end,
+          regionStart: patch.start,
+          regionEnd: patch.end,
+          teaserDuration: Math.max(1, patch.end - patch.start)
+        });
+      }
+    };
+
+    const handlePointerUp = (): void => setDragState(null);
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp, { once: true });
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [dragState, onTimelineClipChange, onTimelineMarkerChange, timelineSpan]);
+
   const playPause = useCallback(() => {
     const wavesurfer = waveSurferRef.current;
-    if (!wavesurfer) return;
+    if (!wavesurfer) {
+      setPlaying((wasPlaying) => {
+        onPlaybackChange(!wasPlaying);
+        return !wasPlaying;
+      });
+      return;
+    }
     if (wavesurfer.isPlaying()) {
       wavesurfer.pause();
       return;
@@ -159,8 +312,13 @@ export function Timeline({
   }, [settings.endOffset, settings.startOffset]);
 
   const playRegion = useCallback(() => {
-    waveSurferRef.current?.play(settings.startOffset, settings.endOffset);
-  }, [settings.endOffset, settings.startOffset]);
+    if (waveSurferRef.current) {
+      waveSurferRef.current.play(settings.startOffset, settings.endOffset);
+      return;
+    }
+    setPlaying(true);
+    onPlaybackChange(true);
+  }, [onPlaybackChange, settings.endOffset, settings.startOffset]);
 
   useEffect(() => {
     (window as Window & { teaserForgePlayRegion?: () => void }).teaserForgePlayRegion = playRegion;
@@ -177,8 +335,101 @@ export function Timeline({
     });
   };
 
-  const ticks = Array.from({ length: Math.max(2, Math.ceil(teaserDuration / 5) + 1) }, (_, index) => index * 5);
-  const progress = Math.min(1, Math.max(0, currentTime / teaserDuration));
+  const beginDrag = (
+    event: ReactPointerEvent<HTMLElement>,
+    kind: DragKind,
+    id: string,
+    mode: DragMode,
+    start: number,
+    end: number
+  ): void => {
+    event.preventDefault();
+    event.stopPropagation();
+    const lane = event.currentTarget.closest('.track-lane');
+    const laneWidth = lane?.getBoundingClientRect().width ?? 1;
+    setDragState({
+      kind,
+      id,
+      mode,
+      startX: event.clientX,
+      laneWidth,
+      originalStart: start,
+      originalEnd: end
+    });
+  };
+
+  const seekToClientX = (clientX: number, lane: HTMLElement): void => {
+    const rect = lane.getBoundingClientRect();
+    const ratio = clamp((clientX - rect.left) / rect.width, 0, 1);
+    const absoluteTime = ratio * timelineSpan;
+    const nextTime = clamp(absoluteTime - settings.startOffset, 0, teaserDuration);
+    currentTimeRef.current = nextTime;
+    onCurrentTime(nextTime);
+    waveSurferRef.current?.setTime(absoluteTime);
+  };
+
+  const beginAudioSeek = (event: ReactPointerEvent<HTMLElement>): void => {
+    event.preventDefault();
+    event.stopPropagation();
+    const lane = event.currentTarget.closest('.waveform-lane');
+    if (!(lane instanceof HTMLElement)) return;
+    seekToClientX(event.clientX, lane);
+
+    const handlePointerMove = (moveEvent: PointerEvent): void => seekToClientX(moveEvent.clientX, lane);
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', () => window.removeEventListener('pointermove', handlePointerMove), { once: true });
+  };
+
+  const selectClip = (clip: TimelineClip): void => {
+    onTimelineSelectionChange({ type: 'clip', id: clip.id });
+  };
+
+  const selectMarker = (marker: TimelineExportMarker): void => {
+    onTimelineSelectionChange({ type: 'export-marker', id: marker.id });
+  };
+
+  const selectExportRange = (): void => {
+    onTimelineSelectionChange({ type: 'export-range', id: 'export-range' });
+  };
+
+  const clipLabel = (clip: TimelineClip): string => {
+    if (clip.kind === 'title') return project.title || 'Title';
+    if (clip.kind === 'subtitle') return project.subtitle || 'Subtitle / Artist';
+    if (clip.kind === 'cover-art') return cover?.name ?? 'Cover art';
+    if (clip.kind === 'video-cover') return video?.name ?? 'Video cover';
+    return clip.label;
+  };
+
+  const renderClip = (clip: TimelineClip): JSX.Element => (
+    <div
+      key={clip.id}
+      className={`clip editable-clip ${clipClass(clip)} ${selected?.type === 'clip' && selected.id === clip.id ? 'selected' : ''} ${clip.enabled ? '' : 'disabled'}`}
+      style={{ left: timeToLeft(clip.start, timelineSpan), width: timeToWidth(clip.start, clip.end, timelineSpan) }}
+      role="button"
+      tabIndex={0}
+      title={`${clip.label}: ${formatTime(clip.start)} - ${formatTime(clip.end)}`}
+      onClick={(event) => {
+        event.stopPropagation();
+        selectClip(clip);
+      }}
+      onPointerDown={(event) => beginDrag(event, 'clip', clip.id, 'move', clip.start, clip.end)}
+    >
+      <span
+        className="clip-handle start"
+        onPointerDown={(event) => beginDrag(event, 'clip', clip.id, 'start', clip.start, clip.end)}
+      />
+      <span className="clip-label">{clipLabel(clip)}</span>
+      <span
+        className="clip-handle end"
+        onPointerDown={(event) => beginDrag(event, 'clip', clip.id, 'end', clip.start, clip.end)}
+      />
+    </div>
+  );
+
+  const renderTrack = (track: TimelineTrackId): JSX.Element[] => project.timeline.clips.filter((clip) => clip.track === track).map(renderClip);
+
+  const ticks = Array.from({ length: Math.max(2, Math.ceil(timelineSpan / 5) + 1) }, (_, index) => index * 5);
+  const progress = clamp((settings.startOffset + currentTime) / timelineSpan, 0, 1);
 
   return (
     <section className="timeline panel">
@@ -196,19 +447,27 @@ export function Timeline({
           onStop={() => {
             waveSurferRef.current?.pause();
             waveSurferRef.current?.setTime(settings.startOffset);
+            setPlaying(false);
+            onPlaybackChange(false);
+            currentTimeRef.current = 0;
             onCurrentTime(0);
           }}
           onJumpStart={() => {
             waveSurferRef.current?.setTime(settings.startOffset);
+            currentTimeRef.current = 0;
             onCurrentTime(0);
           }}
           onJumpEnd={() => {
             waveSurferRef.current?.setTime(settings.endOffset);
+            currentTimeRef.current = teaserDuration;
             onCurrentTime(teaserDuration);
           }}
           onLoopChange={(loopRegion) => onSettingsChange({ loopRegion })}
           onVolumeChange={setVolume}
         />
+        <div className="timeline-selection-readout">
+          {selected ? 'Selection active' : 'Click clips or export markers to edit timing'}
+        </div>
         <div className="preset-row">
           {PRESET_DURATIONS.map((duration) => (
             <button key={duration} className={Math.round(teaserDuration) === duration ? 'active' : ''} type="button" onClick={() => setPresetDuration(duration)}>
@@ -221,13 +480,13 @@ export function Timeline({
 
       <div className="timeline-ruler">
         {ticks.map((tick) => (
-          <span key={tick} style={{ left: `${Math.min(100, (tick / teaserDuration) * 100)}%` }}>
+          <span key={tick} style={{ left: `${Math.min(100, (tick / timelineSpan) * 100)}%` }}>
             {formatTime(tick)}
           </span>
         ))}
       </div>
 
-      <div className="timeline-grid">
+      <div className="timeline-grid" onClick={() => onTimelineSelectionChange(undefined)}>
         <div className="track-label">Markers</div>
         <div className="track-lane marker-lane">
           <span style={{ left: '8%' }}>Intro</span>
@@ -238,47 +497,74 @@ export function Timeline({
         <div className="track-label">Audio Waveform</div>
         <div className="track-lane waveform-lane">
           <div className="playhead" style={{ left: `${progress * 100}%` }} />
-          {disabled ? (
+          {isDemo || !selectedSong ? (
             <div className="synthetic-wave">
               {waveformBars.map((height, index) => <span key={index} style={{ height: `${height * 100}%` }} />)}
             </div>
           ) : (
             <div className="wavesurfer-host" ref={waveformRef} />
           )}
+          <div className="audio-seek-layer" title="Click or drag to scrub audio" onPointerDown={beginAudioSeek} />
         </div>
 
         <div className="track-label">Text</div>
-        <div className="track-lane clip-lane">
-          <div className="clip text-clip" style={{ left: '2%', width: '54%' }}>{project.title}</div>
-          <div className="clip text-clip secondary" style={{ left: '58%', width: '34%' }}>{project.subtitle || 'Subtitle'}</div>
-        </div>
+        <div className="track-lane clip-lane">{renderTrack('text')}</div>
 
         <div className="track-label">Cover Art</div>
-        <div className="track-lane clip-lane thumbnails">
-          <div className="clip media-clip" style={{ left: '4%', width: '28%' }}>{cover?.name ?? 'No cover'}</div>
-          <div className="clip media-clip" style={{ left: '38%', width: '28%' }}>{cover?.name ?? 'Cover art'}</div>
-          <div className="clip media-clip" style={{ left: '72%', width: '22%' }}>{cover?.name ?? 'Cover art'}</div>
-        </div>
+        <div className="track-lane clip-lane thumbnails">{renderTrack('cover')}</div>
 
         <div className="track-label">Video Cover</div>
-        <div className="track-lane clip-lane thumbnails">
-          <div className="clip video-clip" style={{ left: '3%', width: '24%' }}>{video?.name ?? 'No video'}</div>
-          <div className="clip video-clip" style={{ left: '30%', width: '28%' }}>{video?.name ?? 'Video cover'}</div>
-          <div className="clip video-clip" style={{ left: '62%', width: '32%' }}>{video?.name ?? 'Video cover'}</div>
-        </div>
+        <div className="track-lane clip-lane thumbnails">{renderTrack('video')}</div>
 
         <div className="track-label">Effects</div>
-        <div className="track-lane effects-lane">
-          {Object.entries(settings.effects).filter(([, value]) => value.enabled).map(([key], index) => (
-            <div className="effect-pill" style={{ left: `${8 + index * 14}%` }} key={key}>{key.replace(/[A-Z]/g, ' $&')}</div>
-          ))}
-        </div>
+        <div className="track-lane effects-lane">{renderTrack('effects')}</div>
 
-        <div className="track-label">Export Markers</div>
+        <div className="track-label">Export Range</div>
         <div className="track-lane export-marker-lane">
-          <div className="export-marker portrait" style={{ left: '1%', width: '28%' }}>9:16 export</div>
-          <div className="export-marker square" style={{ left: '36%', width: '25%' }}>1:1 export</div>
-          <div className="export-marker landscape" style={{ left: '70%', width: '28%' }}>16:9 export</div>
+          <div
+            className={`export-range ${selected?.type === 'export-range' ? 'selected' : ''}`}
+            style={{ left: timeToLeft(settings.startOffset, timelineSpan), width: timeToWidth(settings.startOffset, settings.endOffset, timelineSpan) }}
+            role="button"
+            tabIndex={0}
+            title={`Export range: ${formatTime(settings.startOffset)} - ${formatTime(settings.endOffset)}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              selectExportRange();
+            }}
+            onPointerDown={(event) => beginDrag(event, 'export-range', 'export-range', 'move', settings.startOffset, settings.endOffset)}
+          >
+            <span
+              className="clip-handle start"
+              onPointerDown={(event) => beginDrag(event, 'export-range', 'export-range', 'start', settings.startOffset, settings.endOffset)}
+            />
+            <span className="export-range-label">{formatTime(settings.startOffset)} - {formatTime(settings.endOffset)}</span>
+            <div className="export-range-chips">
+              {(['9x16', '1x1', '16x9'] as AspectRatioKey[]).map((aspect) => (
+                <button
+                  key={aspect}
+                  className={`export-chip ${aspectChipClass(aspect)} ${settings.primaryAspect === aspect ? 'active' : ''}`}
+                  type="button"
+                  title={`Select ${aspect}. Double-click to export.`}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onSettingsChange({ primaryAspect: aspect });
+                    selectExportRange();
+                  }}
+                  onDoubleClick={(event) => {
+                    event.stopPropagation();
+                    if (!isDemo) onExportMarker(aspect);
+                  }}
+                >
+                  {aspect}
+                </button>
+              ))}
+            </div>
+            <span
+              className="clip-handle end"
+              onPointerDown={(event) => beginDrag(event, 'export-range', 'export-range', 'end', settings.startOffset, settings.endOffset)}
+            />
+          </div>
         </div>
       </div>
     </section>

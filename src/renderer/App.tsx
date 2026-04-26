@@ -1,4 +1,4 @@
-import { Check, Grid3X3, MonitorUp, Shield, Smartphone, Square as SquareIcon } from 'lucide-react';
+import { Check, Columns3, Grid3X3, MonitorUp, Shield, Smartphone, Square as SquareIcon } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Inspector } from './components/Inspector/Inspector';
 import { MediaBrowser } from './components/MediaBrowser/MediaBrowser';
@@ -17,7 +17,11 @@ import type {
   MediaAsset,
   MediaScanResult,
   ProjectConfig,
-  TeaserSettings
+  TeaserSettings,
+  TimelineClip,
+  TimelineExportMarker,
+  TimelineSelection,
+  TimelineState
 } from '../shared/types';
 import { ASPECT_RATIOS, DEFAULT_PROJECT } from '../shared/types';
 
@@ -46,12 +50,18 @@ export function App(): JSX.Element {
   const [playing, setPlaying] = useState(false);
   const [exportEvents, setExportEvents] = useState<ExportProgressEvent[]>([]);
   const [exporting, setExporting] = useState(false);
+  const [showAllPreviews, setShowAllPreviews] = useState(false);
 
   const selectedSong = useMemo(() => findAsset(scan, project.selectedSongPath), [scan, project.selectedSongPath]);
   const selectedCover = useMemo(() => findAsset(scan, project.coverArtPath), [scan, project.coverArtPath]);
   const selectedVideo = useMemo(() => findAsset(scan, project.videoCoverPath), [scan, project.videoCoverPath]);
   const coverCandidates = useMemo(() => rankAssetMatches(selectedSong, scan?.groups.coverArt ?? []), [scan?.groups.coverArt, selectedSong]);
   const videoCandidates = useMemo(() => rankAssetMatches(selectedSong, scan?.groups.videoCoverArt ?? []), [scan?.groups.videoCoverArt, selectedSong]);
+  const activeAspectPreset = useMemo(
+    () => ASPECT_RATIOS.find((preset) => preset.key === project.settings.primaryAspect) ?? ASPECT_RATIOS[0],
+    [project.settings.primaryAspect]
+  );
+  const visiblePreviewPresets = showAllPreviews ? ASPECT_RATIOS : [activeAspectPreset];
 
   const updateSettings = useCallback((patch: Partial<TeaserSettings>) => {
     setProject((previous) => ({
@@ -70,6 +80,103 @@ export function App(): JSX.Element {
       ...patch,
       updatedAt: new Date().toISOString()
     }));
+  }, []);
+
+  const updateTimeline = useCallback((timeline: TimelineState) => {
+    setProject((previous) => ({
+      ...previous,
+      timeline,
+      updatedAt: new Date().toISOString()
+    }));
+  }, []);
+
+  const selectTimelineItem = useCallback((selected?: TimelineSelection) => {
+    setProject((previous) => {
+      const marker = selected?.type === 'export-marker' ? previous.timeline.exportMarkers.find((item) => item.id === selected.id) : undefined;
+      return {
+        ...previous,
+        timeline: {
+          ...previous.timeline,
+          selected
+        },
+        settings: marker
+          ? {
+              ...previous.settings,
+              primaryAspect: marker.aspect,
+              startOffset: marker.start,
+              endOffset: marker.end,
+              regionStart: marker.start,
+              regionEnd: marker.end,
+              teaserDuration: Math.max(1, marker.end - marker.start)
+            }
+          : previous.settings,
+        updatedAt: new Date().toISOString()
+      };
+    });
+  }, []);
+
+  const updateTimelineClip = useCallback((clipId: string, patch: Partial<TimelineClip>) => {
+    setProject((previous) => {
+      let changedClip: TimelineClip | undefined;
+      const clips = previous.timeline.clips.map((clip) => {
+        if (clip.id !== clipId) return clip;
+        changedClip = { ...clip, ...patch };
+        return changedClip;
+      });
+      const nextSettings = changedClip?.effectKey && typeof patch.enabled === 'boolean'
+        ? {
+            ...previous.settings,
+            effects: {
+              ...previous.settings.effects,
+              [changedClip.effectKey]: {
+                ...previous.settings.effects[changedClip.effectKey],
+                enabled: patch.enabled
+              }
+            }
+          }
+        : previous.settings;
+
+      return {
+        ...previous,
+        settings: nextSettings,
+        timeline: {
+          ...previous.timeline,
+          clips
+        },
+        updatedAt: new Date().toISOString()
+      };
+    });
+  }, []);
+
+  const updateTimelineMarker = useCallback((markerId: string, patch: Partial<TimelineExportMarker>) => {
+    setProject((previous) => {
+      let changedMarker: TimelineExportMarker | undefined;
+      const exportMarkers = previous.timeline.exportMarkers.map((marker) => {
+        if (marker.id !== markerId) return marker;
+        changedMarker = { ...marker, ...patch };
+        return changedMarker;
+      });
+
+      return {
+        ...previous,
+        timeline: {
+          ...previous.timeline,
+          exportMarkers
+        },
+        settings: changedMarker && previous.timeline.selected?.type === 'export-marker' && previous.timeline.selected.id === markerId
+          ? {
+              ...previous.settings,
+              primaryAspect: changedMarker.aspect,
+              startOffset: changedMarker.start,
+              endOffset: changedMarker.end,
+              regionStart: changedMarker.start,
+              regionEnd: changedMarker.end,
+              teaserDuration: Math.max(1, changedMarker.end - changedMarker.start)
+            }
+          : previous.settings,
+        updatedAt: new Date().toISOString()
+      };
+    });
   }, []);
 
   const loadProject = useCallback(async (rootPath: string) => {
@@ -214,7 +321,19 @@ export function App(): JSX.Element {
     setExporting(true);
     try {
       const savedProject = project.rootPath && !isDemo ? await teaserForgeApi.saveProjectConfig(project) : project;
-      await teaserForgeApi.exportBatch({ project: savedProject, targets });
+      for (const target of targets) {
+        const projectForTarget: ProjectConfig = {
+          ...savedProject,
+          settings: {
+            ...savedProject.settings,
+            primaryAspect: target.aspect,
+            regionStart: savedProject.settings.startOffset,
+            regionEnd: savedProject.settings.endOffset,
+            teaserDuration: Math.max(1, savedProject.settings.endOffset - savedProject.settings.startOffset)
+          }
+        };
+        await teaserForgeApi.exportBatch({ project: projectForTarget, targets: [target] });
+      }
       await teaserForgeApi.checkFfmpeg().then(setFfmpegStatus);
     } catch (exportError) {
       setError(exportError instanceof Error ? exportError.message : 'Export failed.');
@@ -289,7 +408,7 @@ export function App(): JSX.Element {
         <section className="workspace">
           <div className="workspace-toolbar panel">
             <div>
-              <p className="eyebrow">Preview Canvases</p>
+              <p className="eyebrow">{showAllPreviews ? 'Preview Canvases' : 'Preview Canvas'}</p>
               <h1>{project.title || scan?.rootName || 'Untitled Project'}</h1>
             </div>
             <div className="toolbar-toggles">
@@ -300,6 +419,10 @@ export function App(): JSX.Element {
               <button className={project.settings.showGrid ? 'active' : ''} type="button" onClick={() => updateSettings({ showGrid: !project.settings.showGrid })}>
                 <Grid3X3 size={15} />
                 Grid
+              </button>
+              <button className={showAllPreviews ? 'active' : ''} type="button" onClick={() => setShowAllPreviews((value) => !value)}>
+                <Columns3 size={15} />
+                Compare
               </button>
               <button className={project.settings.primaryAspect === '9x16' ? 'active' : ''} type="button" onClick={() => setPrimaryAspect('9x16')}>
                 <Smartphone size={15} />
@@ -316,8 +439,8 @@ export function App(): JSX.Element {
             </div>
           </div>
 
-          <div className="preview-grid-main">
-            {ASPECT_RATIOS.map((preset) => (
+          <div className={`preview-grid-main ${showAllPreviews ? 'compare' : `focused focus-${activeAspectPreset.key}`}`}>
+            {visiblePreviewPresets.map((preset) => (
               <PreviewCanvas
                 key={preset.key}
                 preset={preset}
@@ -342,6 +465,11 @@ export function App(): JSX.Element {
             currentTime={currentTime}
             onCurrentTime={setCurrentTime}
             onSettingsChange={updateSettings}
+            onTimelineChange={updateTimeline}
+            onTimelineSelectionChange={selectTimelineItem}
+            onTimelineClipChange={updateTimelineClip}
+            onTimelineMarkerChange={updateTimelineMarker}
+            onExportMarker={(aspect) => exportTargets([aspect])}
             onPlaybackChange={setPlaying}
           />
         </section>
@@ -359,6 +487,9 @@ export function App(): JSX.Element {
           isDemo={isDemo}
           onProjectChange={updateProject}
           onSettingsChange={updateSettings}
+          onTimelineSelectionChange={selectTimelineItem}
+          onTimelineClipChange={updateTimelineClip}
+          onTimelineMarkerChange={updateTimelineMarker}
           onSetCover={setCover}
           onSetVideo={setVideo}
           onSelectOutputFolder={selectOutputFolder}

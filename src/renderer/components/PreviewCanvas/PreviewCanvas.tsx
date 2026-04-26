@@ -1,6 +1,6 @@
 import type { DragEvent } from 'react';
 import { useEffect, useState } from 'react';
-import type { AspectRatioPreset, MediaAsset, ProjectConfig } from '../../../shared/types';
+import type { AspectRatioPreset, MediaAsset, ProjectConfig, TeaserSettings } from '../../../shared/types';
 import { teaserForgeApi } from '../../lib/api';
 import { formatTime } from '../../lib/timecode';
 import { syntheticBars } from '../../lib/waveform';
@@ -52,6 +52,12 @@ export function PreviewCanvas({
   const backgroundUrl = !isDemo && background ? teaserForgeApi.mediaUrl(background.path) : '';
   const titleText = project.title.trim();
   const subtitleText = project.subtitle.trim();
+  const clipIsActive = (kind: 'title' | 'subtitle'): boolean =>
+    project.timeline.clips.some((clip) => clip.kind === kind && clip.enabled && currentTime >= clip.start && currentTime <= clip.end);
+  const effectIsActive = (effectKey: keyof TeaserSettings['effects']): boolean =>
+    project.timeline.clips.some((clip) => clip.kind === 'effect' && clip.effectKey === effectKey && clip.enabled && currentTime >= clip.start && currentTime <= clip.end);
+  const titleActive = settings.titleVisible && Boolean(titleText) && clipIsActive('title');
+  const subtitleActive = settings.subtitleVisible && Boolean(subtitleText) && clipIsActive('subtitle');
 
   useEffect(() => {
     setVideoFailed(false);
@@ -90,16 +96,16 @@ export function PreviewCanvas({
           )}
 
           <div className="preview-vignette" />
-          {settings.effects.bloomPulse.enabled && <div className="effect-bloom" style={{ opacity: settings.effects.bloomPulse.intensity }} />}
-          {settings.effects.lightSweep.enabled && <div className="effect-sweep" style={{ opacity: settings.effects.lightSweep.intensity }} />}
-          {settings.effects.scanlines.enabled && <div className="effect-scanlines" style={{ opacity: settings.effects.scanlines.intensity }} />}
-          {settings.effects.chromaticAberration.enabled && <div className="effect-chroma" style={{ opacity: settings.effects.chromaticAberration.intensity }} />}
+          {settings.effects.bloomPulse.enabled && effectIsActive('bloomPulse') && <div className="effect-bloom" style={{ opacity: settings.effects.bloomPulse.intensity }} />}
+          {settings.effects.lightSweep.enabled && effectIsActive('lightSweep') && <div className="effect-sweep" style={{ opacity: settings.effects.lightSweep.intensity }} />}
+          {settings.effects.scanlines.enabled && effectIsActive('scanlines') && <div className="effect-scanlines" style={{ opacity: settings.effects.scanlines.intensity }} />}
+          {settings.effects.chromaticAberration.enabled && effectIsActive('chromaticAberration') && <div className="effect-chroma" style={{ opacity: settings.effects.chromaticAberration.intensity }} />}
           {settings.showGrid && <div className="preview-grid" />}
           {settings.showSafeArea && <div className="preview-safe-area" />}
 
-          {(titleText || subtitleText) && (
+          {(titleActive || subtitleActive) && (
             <div className={`preview-copy ${textPositionClass(settings.positionPreset)}`}>
-            {settings.titleVisible && titleText && (
+            {titleActive && (
               <h3
                 style={{
                   fontFamily: settings.fontFamily,
@@ -111,7 +117,7 @@ export function PreviewCanvas({
                 {titleText}
               </h3>
             )}
-            {settings.subtitleVisible && subtitleText && <p>{subtitleText}</p>}
+            {subtitleActive && <p>{subtitleText}</p>}
             </div>
           )}
 

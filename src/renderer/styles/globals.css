@@ -455,8 +455,33 @@ button:disabled {
 .preview-grid-main {
   min-height: 0;
   display: grid;
-  grid-template-columns: 0.78fr 0.86fr 1.5fr;
   gap: 10px;
+}
+
+.preview-grid-main.compare {
+  grid-template-columns: 0.78fr 0.86fr 1.5fr;
+}
+
+.preview-grid-main.focused {
+  grid-template-columns: minmax(0, 1fr);
+  place-items: stretch center;
+}
+
+.preview-grid-main.focused .preview-shell {
+  width: 100%;
+  height: 100%;
+}
+
+.preview-grid-main.focus-16x9 .preview-shell {
+  max-width: 100%;
+}
+
+.preview-grid-main.focus-1x1 .preview-shell {
+  max-width: min(100%, 980px);
+}
+
+.preview-grid-main.focus-9x16 .preview-shell {
+  max-width: min(100%, 640px);
 }
 
 .preview-shell {
@@ -501,6 +526,23 @@ button:disabled {
   padding: 10px;
 }
 
+.preview-grid-main.focused .preview-stage-wrap {
+  container-type: size;
+  padding: 12px;
+}
+
+.preview-grid-main.focus-16x9 {
+  --focused-preview-max-width: 177.78cqh;
+}
+
+.preview-grid-main.focus-1x1 {
+  --focused-preview-max-width: 100cqh;
+}
+
+.preview-grid-main.focus-9x16 {
+  --focused-preview-max-width: 56.25cqh;
+}
+
 .preview-stage {
   container-type: inline-size;
   width: 100%;
@@ -511,6 +553,10 @@ button:disabled {
   border: 1px solid rgba(143, 177, 219, 0.2);
   border-radius: 4px;
   background: #02050a;
+}
+
+.preview-grid-main.focused .preview-stage {
+  width: min(100cqw, var(--focused-preview-max-width));
 }
 
 .preview-bg,
@@ -773,6 +819,12 @@ button:disabled {
   gap: 5px;
 }
 
+.timeline-selection-readout {
+  min-width: 210px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .preset-row button {
   font-size: 11px;
   padding: 5px 8px;
@@ -837,6 +889,13 @@ button:disabled {
   inset: 0 0 0 0;
 }
 
+.audio-seek-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  cursor: crosshair;
+}
+
 .synthetic-wave {
   height: 100%;
   display: flex;
@@ -860,7 +919,8 @@ button:disabled {
   width: 2px;
   background: white;
   box-shadow: 0 0 18px var(--cyan);
-  z-index: 6;
+  z-index: 8;
+  pointer-events: none;
 }
 
 .clip {
@@ -876,6 +936,70 @@ button:disabled {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 11px;
+}
+
+.editable-clip,
+.editable-marker {
+  cursor: grab;
+  user-select: none;
+}
+
+.editable-clip:active,
+.editable-marker:active {
+  cursor: grabbing;
+}
+
+.editable-clip.selected,
+.editable-marker.selected {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 1px rgba(0, 216, 255, 0.18), 0 0 18px rgba(0, 216, 255, 0.18);
+}
+
+.editable-clip.disabled {
+  opacity: 0.45;
+}
+
+.clip-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.clip-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+  z-index: 2;
+}
+
+.clip-handle.start {
+  left: 0;
+}
+
+.clip-handle.end {
+  right: 0;
+}
+
+.clip-handle::after {
+  content: '';
+  position: absolute;
+  top: 7px;
+  bottom: 7px;
+  width: 2px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.clip-handle.start::after {
+  left: 3px;
+}
+
+.clip-handle.end::after {
+  right: 3px;
 }
 
 .text-clip {
@@ -897,8 +1021,13 @@ button:disabled {
   color: #ffd9ef;
 }
 
-.effect-pill,
-.export-marker {
+.effect-clip {
+  background: rgba(139, 92, 246, 0.12);
+  color: #dccbff;
+  border-color: rgba(139, 92, 246, 0.38);
+}
+
+.effect-pill {
   position: absolute;
   top: 7px;
   bottom: 7px;
@@ -914,23 +1043,68 @@ button:disabled {
   text-transform: capitalize;
 }
 
-.export-marker {
+.export-range {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  display: grid;
+  grid-template-columns: minmax(72px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 174px;
+  border: 1px solid rgba(0, 216, 255, 0.52);
+  border-radius: 6px;
+  background: linear-gradient(90deg, rgba(0, 216, 255, 0.16), rgba(139, 92, 246, 0.14));
   color: white;
+  padding: 0 10px;
+  cursor: grab;
+  user-select: none;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.export-range.selected {
+  box-shadow: 0 0 0 1px rgba(0, 216, 255, 0.28), 0 0 20px rgba(0, 216, 255, 0.2);
+}
+
+.export-range-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
   font-weight: 800;
 }
 
-.export-marker.portrait {
-  border-color: rgba(32, 227, 162, 0.5);
-  background: rgba(32, 227, 162, 0.14);
+.export-range-chips {
+  display: flex;
+  gap: 5px;
 }
 
-.export-marker.square {
-  border-color: rgba(139, 92, 246, 0.5);
+.export-chip {
+  height: 22px;
+  min-width: 42px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.24);
+  color: #dce9fb;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
 }
 
-.export-marker.landscape {
-  border-color: rgba(0, 216, 255, 0.5);
-  background: rgba(0, 216, 255, 0.12);
+.export-chip.portrait.active {
+  border-color: rgba(32, 227, 162, 0.75);
+  background: rgba(32, 227, 162, 0.22);
+}
+
+.export-chip.square.active {
+  border-color: rgba(139, 92, 246, 0.75);
+  background: rgba(139, 92, 246, 0.25);
+}
+
+.export-chip.landscape.active {
+  border-color: rgba(0, 216, 255, 0.75);
+  background: rgba(0, 216, 255, 0.2);
 }
 
 .tabs {
@@ -949,6 +1123,54 @@ button:disabled {
 
 .stack {
   padding-top: 12px;
+}
+
+.stack.compact {
+  padding-top: 8px;
+  gap: 7px;
+}
+
+.timeline-selection-card {
+  margin-top: 12px;
+  border: 1px solid rgba(0, 216, 255, 0.28);
+  border-radius: 8px;
+  background: rgba(0, 216, 255, 0.045);
+  padding: 10px;
+}
+
+.selection-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.selection-heading span,
+.selection-heading strong {
+  display: block;
+}
+
+.selection-heading span {
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.selection-heading strong {
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.selection-heading button {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 5px 8px;
+  cursor: pointer;
+  color: var(--muted);
 }
 
 .field-row {
@@ -1241,11 +1463,11 @@ button:disabled {
     grid-template-columns: 290px minmax(520px, 1fr) 300px;
   }
 
-  .preview-grid-main {
+  .preview-grid-main.compare {
     grid-template-columns: 0.8fr 0.8fr;
   }
 
-  .preview-grid-main .preview-shell:nth-child(3) {
+  .preview-grid-main.compare .preview-shell:nth-child(3) {
     grid-column: 1 / -1;
   }
 

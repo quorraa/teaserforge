@@ -125,6 +125,39 @@ export interface TeaserSettings {
   outputFolder?: string;
 }
 
+export type TimelineTrackId = 'text' | 'cover' | 'video' | 'effects';
+export type TimelineClipKind = 'title' | 'subtitle' | 'cover-art' | 'video-cover' | 'effect';
+
+export interface TimelineClip {
+  id: string;
+  track: TimelineTrackId;
+  kind: TimelineClipKind;
+  label: string;
+  start: number;
+  end: number;
+  enabled: boolean;
+  effectKey?: keyof TeaserSettings['effects'];
+}
+
+export interface TimelineExportMarker {
+  id: string;
+  aspect: AspectRatioKey;
+  label: string;
+  start: number;
+  end: number;
+}
+
+export interface TimelineSelection {
+  type: 'clip' | 'export-marker' | 'export-range';
+  id: string;
+}
+
+export interface TimelineState {
+  clips: TimelineClip[];
+  exportMarkers: TimelineExportMarker[];
+  selected?: TimelineSelection;
+}
+
 export interface ProjectConfig {
   schemaVersion: 1;
   rootPath?: string;
@@ -135,6 +168,7 @@ export interface ProjectConfig {
   videoCoverPath?: string;
   pairings: Record<string, AssetPairing>;
   settings: TeaserSettings;
+  timeline: TimelineState;
   updatedAt: string;
 }
 
@@ -233,11 +267,35 @@ export const DEFAULT_SETTINGS: TeaserSettings = {
   exportFormat: 'h264-mp4'
 };
 
+export const DEFAULT_TIMELINE: TimelineState = {
+  clips: [
+    { id: 'clip-title', track: 'text', kind: 'title', label: 'Title', start: 0, end: 8.2, enabled: true },
+    { id: 'clip-subtitle', track: 'text', kind: 'subtitle', label: 'Subtitle / Artist', start: 8.8, end: 15, enabled: true },
+    { id: 'clip-cover-a', track: 'cover', kind: 'cover-art', label: 'Cover art', start: 0.6, end: 5.2, enabled: true },
+    { id: 'clip-cover-b', track: 'cover', kind: 'cover-art', label: 'Cover art', start: 5.8, end: 10.4, enabled: true },
+    { id: 'clip-cover-c', track: 'cover', kind: 'cover-art', label: 'Cover art', start: 11.2, end: 14.7, enabled: true },
+    { id: 'clip-video-a', track: 'video', kind: 'video-cover', label: 'Video cover', start: 0.4, end: 4.8, enabled: true },
+    { id: 'clip-video-b', track: 'video', kind: 'video-cover', label: 'Video cover', start: 5.4, end: 9.6, enabled: true },
+    { id: 'clip-video-c', track: 'video', kind: 'video-cover', label: 'Video cover', start: 10.2, end: 14.7, enabled: true },
+    { id: 'clip-effect-particles', track: 'effects', kind: 'effect', label: 'Particles', start: 1.2, end: 2.6, enabled: true, effectKey: 'particles' },
+    { id: 'clip-effect-scanlines', track: 'effects', kind: 'effect', label: 'Scanlines', start: 3.4, end: 4.5, enabled: true, effectKey: 'scanlines' },
+    { id: 'clip-effect-light-sweep', track: 'effects', kind: 'effect', label: 'Light Sweep', start: 5.5, end: 6.7, enabled: true, effectKey: 'lightSweep' },
+    { id: 'clip-effect-bloom', track: 'effects', kind: 'effect', label: 'Bloom Pulse', start: 7.4, end: 8.7, enabled: true, effectKey: 'bloomPulse' },
+    { id: 'clip-effect-chroma', track: 'effects', kind: 'effect', label: 'Chromatic Aberration', start: 9.5, end: 11, enabled: true, effectKey: 'chromaticAberration' }
+  ],
+  exportMarkers: [
+    { id: 'export-9x16', aspect: '9x16', label: '9:16 Export', start: 0, end: 15 },
+    { id: 'export-1x1', aspect: '1x1', label: '1:1 Export', start: 0, end: 15 },
+    { id: 'export-16x9', aspect: '16x9', label: '16:9 Export', start: 0, end: 15 }
+  ]
+};
+
 export const DEFAULT_PROJECT: ProjectConfig = {
   schemaVersion: 1,
   title: '',
   subtitle: '',
   pairings: {},
   settings: DEFAULT_SETTINGS,
+  timeline: DEFAULT_TIMELINE,
   updatedAt: new Date(0).toISOString()
 };

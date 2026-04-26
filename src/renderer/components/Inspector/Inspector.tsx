@@ -8,7 +8,10 @@ import type {
   MediaAsset,
   MediaScanResult,
   ProjectConfig,
-  TeaserSettings
+  TeaserSettings,
+  TimelineClip,
+  TimelineExportMarker,
+  TimelineSelection
 } from '../../../shared/types';
 import { ASPECT_RATIOS } from '../../../shared/types';
 import { defaultOutputHint, EXPORT_TARGETS } from '../../lib/ffmpegCommands';
@@ -30,6 +33,9 @@ interface InspectorProps {
   isDemo: boolean;
   onProjectChange: (patch: Partial<ProjectConfig>) => void;
   onSettingsChange: (patch: Partial<TeaserSettings>) => void;
+  onTimelineSelectionChange: (selection?: TimelineSelection) => void;
+  onTimelineClipChange: (clipId: string, patch: Partial<TimelineClip>) => void;
+  onTimelineMarkerChange: (markerId: string, patch: Partial<TimelineExportMarker>) => void;
   onSetCover: (asset: MediaAsset) => void;
   onSetVideo: (asset: MediaAsset) => void;
   onSelectOutputFolder: () => void;
@@ -124,6 +130,9 @@ export function Inspector({
   isDemo,
   onProjectChange,
   onSettingsChange,
+  onTimelineSelectionChange,
+  onTimelineClipChange,
+  onTimelineMarkerChange,
   onSetCover,
   onSetVideo,
   onSelectOutputFolder,
@@ -135,6 +144,13 @@ export function Inspector({
   const [tab, setTab] = useState<InspectorTab>('project');
   const settings = project.settings;
   const selectedTarget = EXPORT_TARGETS.find((target) => target.aspect === settings.primaryAspect) ?? EXPORT_TARGETS[0];
+  const selectedTimelineClip = project.timeline.selected?.type === 'clip'
+    ? project.timeline.clips.find((clip) => clip.id === project.timeline.selected?.id)
+    : undefined;
+  const selectedTimelineMarker = project.timeline.selected?.type === 'export-marker'
+    ? project.timeline.exportMarkers.find((marker) => marker.id === project.timeline.selected?.id)
+    : undefined;
+  const selectedExportRange = project.timeline.selected?.type === 'export-range';
 
   const assetName = (path?: string): string => path?.split(/[\\/]/).pop() ?? 'None selected';
 
@@ -157,6 +173,118 @@ export function Inspector({
       </nav>
 
       <div className="inspector-scroll">
+        {(selectedTimelineClip || selectedTimelineMarker || selectedExportRange) && (
+          <div className="timeline-selection-card">
+            <div className="selection-heading">
+              <div>
+                <span>Timeline Selection</span>
+                <strong>{selectedTimelineClip?.label ?? selectedTimelineMarker?.label ?? 'Export Range'}</strong>
+              </div>
+              <button type="button" onClick={() => onTimelineSelectionChange(undefined)}>Clear</button>
+            </div>
+
+            {selectedTimelineClip && (
+              <div className="stack compact">
+                <Field label="Clip label">
+                  <input value={selectedTimelineClip.label} onChange={(event) => onTimelineClipChange(selectedTimelineClip.id, { label: event.target.value })} />
+                </Field>
+                <Field label="Enabled">
+                  <Switch checked={selectedTimelineClip.enabled} onChange={(enabled) => onTimelineClipChange(selectedTimelineClip.id, { enabled })} />
+                </Field>
+                <Field label="Start">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.05"
+                    value={selectedTimelineClip.start}
+                    onChange={(event) => onTimelineClipChange(selectedTimelineClip.id, { start: Math.min(selectedTimelineClip.end - 0.25, Math.max(0, parseNumber(event.target.value, selectedTimelineClip.start))) })}
+                  />
+                </Field>
+                <Field label="End">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.05"
+                    value={selectedTimelineClip.end}
+                    onChange={(event) => onTimelineClipChange(selectedTimelineClip.id, { end: Math.max(selectedTimelineClip.start + 0.25, parseNumber(event.target.value, selectedTimelineClip.end)) })}
+                  />
+                </Field>
+                <div className="notice">Drag this clip in the timeline to move it. Pull the left or right edge to resize its active range.</div>
+              </div>
+            )}
+
+            {selectedTimelineMarker && (
+              <div className="stack compact">
+                <Field label="Aspect">
+                  <input value={ASPECT_RATIOS.find((preset) => preset.key === selectedTimelineMarker.aspect)?.label ?? selectedTimelineMarker.aspect} readOnly />
+                </Field>
+                <Field label="Start">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.05"
+                    value={selectedTimelineMarker.start}
+                    onChange={(event) => onTimelineMarkerChange(selectedTimelineMarker.id, { start: Math.min(selectedTimelineMarker.end - 0.25, Math.max(0, parseNumber(event.target.value, selectedTimelineMarker.start))) })}
+                  />
+                </Field>
+                <Field label="End">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.05"
+                    value={selectedTimelineMarker.end}
+                    onChange={(event) => onTimelineMarkerChange(selectedTimelineMarker.id, { end: Math.max(selectedTimelineMarker.start + 0.25, parseNumber(event.target.value, selectedTimelineMarker.end)) })}
+                  />
+                </Field>
+                <button className="secondary-button" type="button" onClick={() => onExportTargets([selectedTimelineMarker.aspect])} disabled={exporting || isDemo}>
+                  <UploadCloud size={15} />
+                  Export this marker
+                </button>
+                <div className="notice">Clicking a marker selects its aspect and range. Double-click the marker in the timeline to export it directly.</div>
+              </div>
+            )}
+
+            {selectedExportRange && (
+              <div className="stack compact">
+                <Field label="Active aspect">
+                  <select value={settings.primaryAspect} onChange={(event) => onSettingsChange({ primaryAspect: event.target.value as TeaserSettings['primaryAspect'] })}>
+                    {ASPECT_RATIOS.map((preset) => <option key={preset.key} value={preset.key}>{preset.label}</option>)}
+                  </select>
+                </Field>
+                <Field label="Start">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.05"
+                    value={settings.startOffset}
+                    onChange={(event) => {
+                      const startOffset = Math.min(settings.endOffset - 0.25, Math.max(0, parseNumber(event.target.value, settings.startOffset)));
+                      onSettingsChange({ startOffset, regionStart: startOffset, teaserDuration: Math.max(1, settings.endOffset - startOffset) });
+                    }}
+                  />
+                </Field>
+                <Field label="End">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.05"
+                    value={settings.endOffset}
+                    onChange={(event) => {
+                      const endOffset = Math.max(settings.startOffset + 0.25, parseNumber(event.target.value, settings.endOffset));
+                      onSettingsChange({ endOffset, regionEnd: endOffset, teaserDuration: Math.max(1, endOffset - settings.startOffset) });
+                    }}
+                  />
+                </Field>
+                <button className="secondary-button" type="button" onClick={() => onExportTargets([settings.primaryAspect])} disabled={exporting || isDemo}>
+                  <UploadCloud size={15} />
+                  Export active aspect
+                </button>
+                <div className="notice">Drag the export range to move the selected snippet. Pull either edge to resize it. Format chips select which preview/export target is active.</div>
+              </div>
+            )}
+          </div>
+        )}
+
         {tab === 'project' && (
           <div className="stack">
             <Field label="Title">
